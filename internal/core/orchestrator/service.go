@@ -97,6 +97,8 @@ type turnPlanSnapshotRecord struct {
 }
 
 type remoteTurnBinding struct {
+	Model                 string
+	ReasoningEffort       string
 	InstanceID            string
 	SurfaceSessionID      string
 	QueueItemID           string
