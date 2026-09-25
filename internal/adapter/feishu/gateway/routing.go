@@ -671,6 +671,25 @@ func surfaceID(gatewayID, chatID, fallbackUserID string) string {
 	}.SurfaceID()
 }
 
+// A topic's root message ID stays stable when an ordinary message becomes a topic.
+func inboundTopicRootID(env InboundEnv, message *larkim.EventMessage) string {
+	if rootID := strings.TrimSpace(xutil.StringValue(message.RootId)); rootID != "" {
+		return rootID
+	}
+	parentID := strings.TrimSpace(xutil.StringValue(message.ParentId))
+	if parentID == "" {
+		return strings.TrimSpace(xutil.StringValue(message.MessageId))
+	}
+	// A known parent preserves the root even when the reply omits root_id.
+	if env.LookupSurfaceMessage != nil {
+		ref, ok := feishuidentity.ParseSurfaceRef(env.LookupSurfaceMessage(parentID))
+		if ok && ref.TopicRootID() != "" && ref.GatewayID == strings.TrimSpace(env.GatewayID) && ref.ChatID() == strings.TrimSpace(xutil.StringValue(message.ChatId)) {
+			return ref.TopicRootID()
+		}
+	}
+	return parentID
+}
+
 func SurfaceIDForInbound(gatewayID, chatID, chatType, fallbackUserID string) string {
 	return SurfaceIDForInboundTopic(gatewayID, chatID, chatType, fallbackUserID, "")
 }

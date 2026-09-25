@@ -2,7 +2,7 @@
 
 > Type: `general`
 > Updated: `2026-09-25`
-> Summary: 群聊消息按话题隔离 surface，保留群级工作区及恢复冲突检查；私聊保持用户级 surface。
+> Summary: 群聊以根消息 ID 统一原生话题和普通消息转话题的 surface；缺根字段回复优先复用已知父消息映射。
 > 1. visible 但 contract mismatch 的 workspace/session 仍然可见，不会再被 `/list`、`/use`、workspace recency、target picker 直接吞掉；
 > 2. 这些 mismatch 候选不会再假装“可直接接管”；
 > 3. detached `/use`、headless exact-thread restore、workspace attach、startup resume、`/mode` backend switch、`/claudeprofile`、`/codexprofile`、`/opencodeprofile` 现在都会统一先判定 `attach visible compatible / reuse managed compatible / restart managed incompatible / fresh-start matching headless / reject`，而不是各自维护平行 continuation；
@@ -104,7 +104,7 @@
 
 ### 2.2 surface 按 gateway/chat 区分，但 claim 是 relay 全局的
 
-surface 本身按 `gatewayID + chat/user` 区分，不同飞书 app 会形成不同 surface。群聊入站消息使用 `feishu:<gatewayID>:chat:<chatID>@<topicRootID>`：依次取非空 `root_id`、`thread_id`、当前 `message_id` 作为话题标识，同群不同话题保持独立选中会话和输入队列。私聊继续使用用户级 surface；旧群级 surface identity 仍可解析，不自动迁移已有会话。
+surface 本身按 `gatewayID + chat/user` 区分，不同飞书 app 会形成不同 surface。群聊入站消息使用 `feishu:<gatewayID>:chat:<chatID>@<topicRootID>`：使用根消息 ID 作为话题标识：回复取 `root_id`，没有 `root_id` 和 `parent_id` 的首条消息取自身 `message_id`，不因后来出现 `thread_id` 改变身份。原生话题首条和普通消息转为话题后的回复都归到同一 surface；缺失 `root_id` 但有 `parent_id` 的回复优先复用同 gateway、同群已记录的父消息 surface；没有可信映射时使用父消息 ID，不把本条回复的 `message_id` 当作新根，同群不同话题保持独立选中会话和输入队列。私聊继续使用用户级 surface；旧群级 surface identity 仍可解析，不自动迁移已有会话。
 
 surface identity 只接受精确四段格式 `feishu:<gatewayID>:<user|chat>:<scopeID>`。`internal/feishuidentity` 是 build / parse / validate 的 SSOT；gateway、preview、daemon、state 与 orchestrator 必须直接复用该 contract，未知 scope、空字段或额外分段不得通过字符串扫描被识别成有效群聊或私聊 surface。普通消息也只保留 `PlanInboundMessageEvent -> QueuedMessageWork.parseAction` 一条 planning/parsing 主链，测试通过真实 handler 路径同步 capture action，不维护另一份 parser。
 
