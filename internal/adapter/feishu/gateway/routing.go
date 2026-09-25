@@ -672,8 +672,15 @@ func surfaceID(gatewayID, chatID, fallbackUserID string) string {
 }
 
 func SurfaceIDForInbound(gatewayID, chatID, chatType, fallbackUserID string) string {
+	return SurfaceIDForInboundTopic(gatewayID, chatID, chatType, fallbackUserID, "")
+}
+
+func SurfaceIDForInboundTopic(gatewayID, chatID, chatType, fallbackUserID, topicRootID string) string {
 	if strings.EqualFold(chatType, "p2p") && fallbackUserID != "" {
 		return surfaceID(gatewayID, "", fallbackUserID)
+	}
+	if strings.EqualFold(strings.TrimSpace(chatType), "group") && strings.TrimSpace(chatID) != "" && strings.TrimSpace(topicRootID) != "" {
+		chatID = strings.TrimSpace(chatID) + "@" + strings.TrimSpace(topicRootID)
 	}
 	return surfaceID(gatewayID, chatID, fallbackUserID)
 }
