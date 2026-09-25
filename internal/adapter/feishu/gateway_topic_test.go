@@ -18,11 +18,12 @@ import (
 func TestInboundGroupTopicsRemainIndependent(t *testing.T) {
 	gateway := NewLiveGateway(LiveGatewayConfig{GatewayID: "app-1"})
 	for _, tc := range []struct{ name, message, root, thread, chatType, want string }{
-		{"topic A root", "om_a", "", "", "group", "feishu:app-1:chat:oc_chat@om_a"},
-		{"topic B root", "om_b", "", "", "group", "feishu:app-1:chat:oc_chat@om_b"},
+		{"topic A root", "om_a", "", "omt_a", "group", "feishu:app-1:chat:oc_chat@om_a"},
+		{"topic B root", "om_b", "", "omt_b", "group", "feishu:app-1:chat:oc_chat@om_b"},
 		{"topic A reply", "om_reply_a", "om_a", "omt_a", "group", "feishu:app-1:chat:oc_chat@om_a"},
 		{"topic B reply", "om_reply_b", "om_b", "omt_b", "group", "feishu:app-1:chat:oc_chat@om_b"},
-		{"thread fallback", "om_reply", "", "omt_a", "group", "feishu:app-1:chat:oc_chat@omt_a"},
+		{"root fallback", "om_reply", "om_legacy", "", "group", "feishu:app-1:chat:oc_chat@om_legacy"},
+		{"message fallback", "om_plain", "", "", "group", "feishu:app-1:chat:oc_chat@om_plain"},
 		{"p2p root", "om_p", "", "", "p2p", "feishu:app-1:user:ou_user"},
 		{"p2p reply", "om_p2", "om_p", "omt_p", "p2p", "feishu:app-1:user:ou_user"},
 	} {
@@ -205,5 +206,70 @@ func TestTopicReplyRejectsKnownOtherSurfaceAnchor(t *testing.T) {
 	err := gateway.Apply(t.Context(), []Operation{{Kind: OperationSendText, SurfaceSessionID: "feishu:app-1:chat:oc_chat@om_a", ChatID: "oc_chat", ReplyToMessageID: "om_b", Text: "hello"}})
 	if err == nil {
 		t.Fatal("expected mismatched topic anchor to be rejected")
+	}
+}
+
+func TestInboundTopicRootAndReplyShareRootSurface(t *testing.T) {
+	gateway := NewLiveGateway(LiveGatewayConfig{GatewayID: "app-1"})
+	for _, messageID := range []string{"om_root", "om_reply"} {
+		event := testTextMessageEvent("evt-"+messageID, messageID, "hello")
+		event.Event.Message.ChatType = stringRef("group")
+		event.Event.Message.ThreadId = stringRef("omt_shared")
+		if messageID == "om_reply" {
+			event.Event.Message.RootId = stringRef("om_root")
+			event.Event.Message.ParentId = stringRef("om_root")
+		}
+		action, ok, err := gateway.parseMessageEvent(t.Context(), event)
+		if err != nil || !ok {
+			t.Fatalf("parse %s: handled=%v err=%v", messageID, ok, err)
+		}
+		if action.SurfaceSessionID != "feishu:app-1:chat:oc_chat@om_root" {
+			t.Fatalf("%s surface = %q, want shared root surface", messageID, action.SurfaceSessionID)
+		}
+	}
+}
+
+func TestOrdinaryMessagePromotedToTopicKeepsSurface(t *testing.T) {
+	gateway := NewLiveGateway(LiveGatewayConfig{GatewayID: "app-1"})
+	initial := testTextMessageEvent("evt-root", "om_root", "hello")
+	initial.Event.Message.ChatType = stringRef("group")
+	first, ok, err := gateway.parseMessageEvent(t.Context(), initial)
+	if err != nil || !ok {
+		t.Fatalf("root: handled=%v err=%v", ok, err)
+	}
+	gateway.replyMessageFn = func(_ context.Context, messageID, _, _ string, inThread bool) (*larkim.ReplyMessageResp, error) {
+		if messageID != "om_root" || !inThread {
+			t.Fatalf("promotion reply: %q, inThread=%v", messageID, inThread)
+		}
+		return &larkim.ReplyMessageResp{Data: &larkim.ReplyMessageRespData{MessageId: stringRef("om_bot")}}, nil
+	}
+	if err := gateway.Apply(t.Context(), []Operation{{Kind: OperationSendText, SurfaceSessionID: first.SurfaceSessionID, ChatID: first.ChatID, Text: "answer"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, root := range []string{"om_root", ""} {
+		reply := testTextMessageEvent("evt-reply-"+root, "om_reply_"+root, "continue")
+		reply.Event.Message.ChatType = stringRef("group")
+		reply.Event.Message.RootId = stringRef(root)
+		reply.Event.Message.ParentId = stringRef("om_bot")
+		reply.Event.Message.ThreadId = stringRef("omt_created")
+		next, ok, err := gateway.parseMessageEvent(t.Context(), reply)
+		if err != nil || !ok || next.SurfaceSessionID != first.SurfaceSessionID {
+			t.Fatalf("root=%q reply surface=%q, want %q, handled=%v err=%v", root, next.SurfaceSessionID, first.SurfaceSessionID, ok, err)
+		}
+	}
+}
+
+func TestParentOnlyGroupReplyKeepsParentWithinCurrentChat(t *testing.T) {
+	for _, parentSurface := range []string{"", "feishu:app-1:chat:oc_chat", "feishu:app-2:chat:oc_chat@om_root", "feishu:app-1:chat:oc_other@om_root"} {
+		gateway := NewLiveGateway(LiveGatewayConfig{GatewayID: "app-1"})
+		gateway.recordSurfaceMessage("om_parent", parentSurface)
+		event := testTextMessageEvent("evt-incomplete", "om_reply", "hello")
+		event.Event.Message.ChatType = stringRef("group")
+		event.Event.Message.ParentId = stringRef("om_parent")
+		event.Event.Message.ThreadId = stringRef("omt_thread")
+		action, ok, err := gateway.parseMessageEvent(t.Context(), event)
+		if err != nil || !ok || action.SurfaceSessionID != "feishu:app-1:chat:oc_chat@om_parent" {
+			t.Fatalf("parent %q routed incorrectly: %#v, err=%v", parentSurface, action, err)
+		}
 	}
 }

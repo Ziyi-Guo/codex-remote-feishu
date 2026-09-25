@@ -452,9 +452,10 @@ func PlanInboundMessageEvent(env InboundEnv, event *larkim.P2MessageReceiveV1) (
 	chatType := xutil.StringValue(message.ChatType)
 	senderUserID := userIDFromMessage(event.Event.Sender)
 	gatewayID := strings.TrimSpace(env.GatewayID)
-	topicRootID := xutil.FirstNonEmpty(strings.TrimSpace(xutil.StringValue(message.RootId)), strings.TrimSpace(xutil.StringValue(message.ThreadId)), strings.TrimSpace(xutil.StringValue(message.MessageId)))
+	topicRootID := inboundTopicRootID(env, message)
 	surfaceSessionID := SurfaceIDForInboundTopic(gatewayID, chatID, chatType, senderUserID, topicRootID)
 	inbound := InboundMetaFromMessageEvent(event)
+
 	if reason := groupMessageMentionGateReason(env, message, senderTypeFromMessageSender(event.Event.Sender)); reason != "" {
 		logInboundMessageIgnored(gatewayID, surfaceSessionID, inbound, message, reason)
 		return PlannedInboundMessage{}, false, nil
