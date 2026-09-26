@@ -47,7 +47,7 @@ func (s *Service) tickRemoteTurnProgressHeartbeat(now time.Time) []eventcontract
 			Notice: &control.Notice{
 				Code:             "turn_progress_heartbeat",
 				Title:            "任务状态 · 自动提醒",
-				Text:             "任务仍在运行，尚未完成。过去 10 分钟没有新的进度说明。",
+				Text:             "任务仍显示为运行中，尚无最终结果。过去 10 分钟没有新的进度说明。",
 				DeliveryDedupKey: binding.TurnID,
 			},
 		})
