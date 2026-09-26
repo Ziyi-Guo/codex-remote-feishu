@@ -78,20 +78,25 @@ alias 仍兼容，但不建议继续当成新的主展示入口：
 
 飞书后台这里的入口名是“批量导入/导出权限”。
 
-如果你的飞书控制台支持权限 JSON 导入，优先在这个入口里粘贴这段内容，再补手工确认：
+如果你的飞书控制台支持权限 JSON 导入，使用同目录 `app-template.json` 的 `scopes_import`。这是完整功能样例；按需要启用对应功能。所有默认需求均为 **应用身份（tenant）**，同名 user 权限不能代替。
 
-- `application:application:self_manage`
-- `drive:drive`
-- `bitable:app`
-- `im:message:readonly`
-- `im:message.group_at_msg:readonly`
-- `im:message.group_at_msg.include_bot:readonly`
-- `im:message.group_msg`
-- `im:message.p2p_msg:readonly`
-- `im:message.reactions:read`
-- `im:message.reactions:write_only`
-- `im:message:send_as_bot`
-- `im:resource:upload`
+| 功能 | 当前优先申请的应用权限 |
+|---|---|
+| 群信息 | `im:chat:read` |
+| 文档预览：列表、建目录、上传、删除 | `space:document:retrieve`、`space:folder:create`、`drive:file:upload`、`space:document:delete` |
+| 文档预览：元数据、协作者 | `drive:drive.metadata:readonly`、`docs:permission.member:create`、`docs:permission.member:retrieve` |
+| Cron：应用和数据表 | `base:app:create`、`base:app:read`、`base:table:read`、`base:table:create`、`base:table:update` |
+| Cron：字段和记录 | `base:field:read`、`base:field:create`、`base:field:update`、`base:record:retrieve`、`base:record:create`、`base:record:update` |
+
+| Cron：协作者查询、添加、升级为可编辑 | `docs:permission.member:retrieve`、`docs:permission.member:create`、`docs:permission.member:update` |
+
+基础消息、事件、reaction、资源上传和应用自管理权限也在模板内。旧的 `im:chat:readonly`/`im:chat` 仍可满足群信息查询；既有 `drive:drive`、`bitable:app` 按官方接口的候选关系满足对应操作，无需撤销重开。只读权限只覆盖文档列出的读取操作，不能代表上传、删除、分享或记录写入能力。
+
+配置检查读取应用配置；运行时使用 `application.v6.scope.list` 的真实授权状态。`grant_status=1` 才算已授权，身份必须匹配；旧的配置缓存不会被当成新授权证据。配置存在、版本发布、租户授权以及具体文件/表的资源访问权是不同条件。
+
+出现“任选一项”的 scope 错误时，满足同一身份的任一候选即可恢复该 API；不同操作仍分别核验。资源不可见或文件 ACL 错误不能通过盲目申请 `drive:drive` 解决。后台重验保留未知身份/失败读取状态，直到取得可验证的授权结果。
+
+官方依据：[更新协作者](https://open.feishu.cn/document/server-docs/docs/permission/permission-member/update.md)、[群信息](https://open.feishu.cn/document/server-docs/group/chat/get-2.md)、[云盘列表](https://open.feishu.cn/document/server-docs/docs/drive-v1/folder/list.md)、[记录查询](https://open.feishu.cn/document/docs/bitable-v1/app-table-record/search.md)、[实际授权状态](https://open.feishu.cn/document/application-v6/scope/list.md)。
 
 ### 1. 基础机器人收发
 
@@ -107,7 +112,7 @@ alias 仍兼容，但不建议继续当成新的主展示入口：
 
 如果你计划使用 `/cron` 定时任务，再额外确认：
 
-- `bitable:app` 已开通，用于创建和访问当前 daemon 实例的专属多维表格
+- 已开通上表 Cron 所需的应用权限，用于创建和访问当前 daemon 实例的专属多维表格
 
 群聊普通消息读取现在按基础安装处理。没有开通时，机器人仍可处理单聊消息和群里明确 `@` 它的消息；但 `/primary on` 会拒绝设置，未 `@` 群消息也不会被它承接。开通权限后，重新执行 `/primary on` 或 `/primary refresh` 即可刷新运行时缓存。
 
@@ -152,11 +157,9 @@ alias 仍兼容，但不建议继续当成新的主展示入口：
 
 ## 文档预览额外权限
 
-如果你希望 assistant 最终回复里的本地文档链接自动变成“飞书内可点击预览链接”，推荐直接给应用开通：
+如果需要将本地文档链接替换为飞书预览链接，开通上表文档预览的应用身份权限；已有 `drive:drive` 也可满足。
 
-- `drive:drive`
-
-这是当前实现里最省事、最不容易漏项的配置，因为预览链路会实际调用这些能力：
+预览链路会实际调用这些能力：
 
 - 在应用云空间中自动创建目录
 - 上传 Markdown 文件

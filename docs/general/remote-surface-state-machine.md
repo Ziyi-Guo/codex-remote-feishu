@@ -1,8 +1,8 @@
 # Remote Surface 核心状态机
 
 > Type: `general`
-> Updated: `2026-09-25`
-> Summary: Codex 模型与推理强度改为话题设置；同步前缀、默认继承、队列冻结与持久化失败边界。
+> Updated: `2026-09-26`
+> Summary: 权限状态以实际授权为依据，统一身份、逐操作候选组与错误恢复规则。
 > 1. visible 但 contract mismatch 的 workspace/session 仍然可见，不会再被 `/list`、`/use`、workspace recency、target picker 直接吞掉；
 > 2. 这些 mismatch 候选不会再假装“可直接接管”；
 > 3. detached `/use`、headless exact-thread restore、workspace attach、startup resume、`/mode` backend switch、`/claudeprofile`、`/codexprofile`、`/opencodeprofile` 现在都会统一先判定 `attach visible compatible / reuse managed compatible / restart managed incompatible / fresh-start matching headless / reject`，而不是各自维护平行 continuation；
@@ -119,7 +119,7 @@ Feishu 群聊消息在进入 surface 状态机前还有一层 gateway 入站前�
 2. 群聊消息若 `mentions` 命中当前 gateway 缓存的 bot `open_id`，允许 materialize / reuse 当前话题的 `feishu:<gatewayID>:chat:<chatID>@<topicRootID>` surface。
 3. 群聊文本若只有当前 bot mention 和空白字符，在 gateway planner 中转换为 `/primary on` 命令；若 daemon 当前 primary snapshot 已记录 `chatID -> current gateway`，则静默忽略，不记录 `messageID -> surfaceID`，不发用户卡片。
 4. 群聊消息若 `mentions` 存在但未命中当前 bot，fail closed 忽略，不记录 `messageID -> surfaceID`，不进入 queue / dispatch。
-5. 群聊无 mention 的用户消息只在 daemon 当前 primary snapshot 记录 `chatID -> current gateway`，且 daemon 短 TTL 权限缓存确认该 gateway 具备当前权限 `im:message.group_msg` 或历史兼容权限 `im:message.group_msg:readonly` 时放行；否则在 record / parse / image-file download / queue 前忽略。该 snapshot 由 room durable state 复制生成，gateway callback 热路径不读取 orchestrator mutable root。
+5. 群聊无 mention 的用户消息只在 daemon 当前 primary snapshot 记录 `chatID -> current gateway`，且 daemon 短 TTL 的实际授权缓存确认该 gateway 具备当前权限 `im:message.group_msg` 或历史兼容权限 `im:message.group_msg:readonly` 时放行；否则在 record / parse / image-file download / queue 前忽略。该 snapshot 由 room durable state 复制生成，gateway callback 热路径不读取 orchestrator mutable root。
 6. 群聊无 mention 且 sender 是 bot 的消息默认忽略，避免 bot 之间互相触发。
 7. 当前 bot `open_id` 在 gateway 启动时通过 bot info API 获取并缓存；主机器人权限热路径只读 daemon 缓存，不逐条调用飞书 API。
 
@@ -2072,6 +2072,14 @@ retained-offline overlay 额外规则：
 - daemon 在 model/reasoning 或前缀修改进入 queue/dispatch 之前，同步写 surface resume store，成功后才改内存并输出成功结果。写失败时不消费 staged 输入、不创建 queue/active item，输出可重试错误；普通 store sync 跳过失败 surface，避免写出伪成功快照。无持久化 store 时同样拒绝修改。
 - `CodexPromptOverrideUpdatedAt` 只在显式模型设置（包括首次清空）或旧 bot 迁移时更新，非零同时表示设置存在。P2P alias 合并优先按该设置时钟选择完整 model/effort 组合，保留显式空值，不受普通 route 的 `UpdatedAt` 推进影响；加载时没有设置时钟的旧记录只在非空组合中用旧 `UpdatedAt` 兼容选择，缺字段的更新 alias 不等于 clear。旧 bot 两阶段迁移完成后，materialize/Restore 边界将非空旧组合的原 `UpdatedAt` 固定为专用设置时钟并保存；后续普通 route 更新不推进它，旧空字段保持无 presence。迁移仍先补全旧 partial 组合，不覆盖已有设置时钟的显式选择。
 - 旧 bot 级 Codex model/reasoning 仅向启动时已存在且 gateway 匹配的 Feishu surface 快照补录空字段：先落 surface、再清 bot；任一步失败可幂等重试，不覆盖已有话题选择。迁移失败时停止 surface materialize 与 ingress，并保留原快照，提示修复状态目录后重启；新话题不继承旧 bot 值。backend 切换保留 Codex 话题值，Claude/OpenCode 不消费它。
+
+### 飞书权限判定与恢复
+
+运行时权限从 `application.v6.scope.list` 读取，缓存仅在明确为该授权来源且刷新成功时可复用。配置侧 `app.scopes` 用于 setup/admin 差异，不替代运行时授予；旧无来源缓存需重新验证。
+
+同功能的 required 操作要求全部满足，每个 API 的候选 scope 组内部为任选一项。匹配保留 tenant/user 身份和 grant_status；群信息兼容新旧名称，Drive/Cron 使用逐操作权限，记录读取使用官方 Search 接口。未知身份不能自动清掉缺口。
+
+权限错误仅在有明确 scope 证据时生成缺口；any-of 关系从错误结构或明确文本中保留。多条独立 violation 若无法确认是同身份同一任选组，保留完整证据且不靠 scope 快照自动清除，等待实际重试验证。daemon 状态和 broker 用同一匹配规则清除，broker 按 API/resource 隔离，避免读取权限解开其它写操作。文件 ACL/资源不可见不是凭空申请全盘管理权限的依据。
 
 ## 11. 待讨论取舍
 

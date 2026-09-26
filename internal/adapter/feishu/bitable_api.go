@@ -2,7 +2,6 @@ package feishu
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -370,34 +369,24 @@ func (a *liveBitableAPI) UpdateField(ctx context.Context, appToken, tableID, fie
 func (a *liveBitableAPI) ListRecords(ctx context.Context, appToken, tableID string, fieldNames []string) ([]*larkbitable.AppTableRecord, error) {
 	var values []*larkbitable.AppTableRecord
 	pageToken := ""
-	fieldNamesQuery := ""
-	if len(fieldNames) > 0 {
-		raw, err := json.Marshal(fieldNames)
-		if err != nil {
-			return nil, err
-		}
-		fieldNamesQuery = string(raw)
-	}
 	for {
-		builder := larkbitable.NewListAppTableRecordReqBuilder().
+		builder := larkbitable.NewSearchAppTableRecordReqBuilder().
 			AppToken(appToken).
 			TableId(tableID).
-			PageSize(500)
-		if fieldNamesQuery != "" {
-			builder.FieldNames(fieldNamesQuery)
-		}
+			PageSize(500).
+			Body(larkbitable.NewSearchAppTableRecordReqBodyBuilder().FieldNames(fieldNames).Build())
 		if strings.TrimSpace(pageToken) != "" {
 			builder.PageToken(pageToken)
 		}
 		resp, err := DoSDK(ctx, a.broker, CallSpec{
-			API:         "bitable.v1.app_table_record.list",
+			API:         "bitable.v1.app_table_record.search",
 			Class:       CallClassBitable,
 			Priority:    CallPriorityReadAssist,
 			ResourceKey: bitableResourceKey(appToken, tableID),
 			Retry:       RetrySafe,
 			Permission:  PermissionCooldownOnly,
-		}, func(callCtx context.Context, client *lark.Client) (*larkbitable.ListAppTableRecordResp, error) {
-			resp, err := client.Bitable.V1.AppTableRecord.List(callCtx, builder.Build())
+		}, func(callCtx context.Context, client *lark.Client) (*larkbitable.SearchAppTableRecordResp, error) {
+			resp, err := client.Bitable.V1.AppTableRecord.Search(callCtx, builder.Build())
 			if err != nil {
 				return resp, err
 			}
@@ -407,7 +396,7 @@ func (a *liveBitableAPI) ListRecords(ctx context.Context, appToken, tableID stri
 			return nil, err
 		}
 		if !resp.Success() {
-			return nil, newAPIError("bitable.v1.app_table_record.list", resp.ApiResp, resp.CodeError)
+			return nil, newAPIError("bitable.v1.app_table_record.search", resp.ApiResp, resp.CodeError)
 		}
 		if resp.Data != nil {
 			values = append(values, resp.Data.Items...)

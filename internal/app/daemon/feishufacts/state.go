@@ -1,5 +1,5 @@
 // Package feishufacts persists the last observed Feishu bot facts per gateway:
-// app name, bot open_id and configured scopes, together with fetch/error
+// app name, bot open_id and granted scopes, together with fetch/error
 // timestamps. It uses the shared JSON state store contract.
 package feishufacts
 
@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	StateVersion  = 1
-	StateFileName = "feishu-bot-facts.json"
+	ScopesSourceGranted = "granted"
+	StateVersion        = 1
+	StateFileName       = "feishu-bot-facts.json"
 )
 
 type ScopeStatus struct {
@@ -27,6 +28,7 @@ type Record struct {
 	AppID           string        `json:"appID"`
 	AppName         string        `json:"appName,omitempty"`
 	BotOpenID       string        `json:"botOpenID,omitempty"`
+	ScopesSource    string        `json:"scopesSource,omitempty"`
 	Scopes          []ScopeStatus `json:"scopes,omitempty"`
 	ScopesFetchedAt time.Time     `json:"scopesFetchedAt,omitempty"`
 	FetchedAt       time.Time     `json:"fetchedAt,omitempty"`
@@ -75,6 +77,7 @@ func NormalizeRecord(record Record) (Record, bool) {
 	record.BotOpenID = strings.TrimSpace(record.BotOpenID)
 	record.BotError = strings.TrimSpace(record.BotError)
 	record.ScopesError = strings.TrimSpace(record.ScopesError)
+	record.ScopesSource = strings.TrimSpace(record.ScopesSource)
 	record.LastError = strings.TrimSpace(record.LastError)
 	if record.GatewayID == "" || record.AppID == "" {
 		return Record{}, false
@@ -121,6 +124,7 @@ func sameRecord(left, right Record) bool {
 		left.BotOpenID != right.BotOpenID ||
 		left.BotError != right.BotError ||
 		left.ScopesError != right.ScopesError ||
+		left.ScopesSource != right.ScopesSource ||
 		left.LastError != right.LastError ||
 		!left.FetchedAt.Equal(right.FetchedAt) ||
 		!left.ScopesFetchedAt.Equal(right.ScopesFetchedAt) ||

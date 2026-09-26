@@ -106,8 +106,8 @@ loginctl enable-linger "$USER"
 在测试前先确认：
 
 - 飞书应用已经开通 `deploy/feishu/README.md` 里列出的基础消息 / 事件权限
-- 如果你希望本地 `.md` 链接自动变成飞书预览链接，还需要 `drive:drive`
-- 如果你希望在飞书里用 `/cron` 打开当前实例的定时任务多维表格，还需要 `bitable:app`
+- 如果你希望本地 `.md` 链接自动变成飞书预览链接，还需要文档预览对应的应用身份权限，见 `deploy/feishu/README.md`
+- 如果你希望在飞书里用 `/cron` 打开当前实例的定时任务多维表格，还需要 Cron 对应的应用身份权限，见 `deploy/feishu/README.md`
 
 然后在飞书里：
 

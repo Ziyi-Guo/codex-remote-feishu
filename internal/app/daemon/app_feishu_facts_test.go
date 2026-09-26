@@ -28,15 +28,15 @@ func TestForceRefreshFeishuBotFactsPersistsNameOpenIDAndScopes(t *testing.T) {
 	app.configureFeishuFactsStateLocked(stateDir)
 
 	previousBotInfo := getFeishuBotInfo
-	previousScopes := listFeishuAppConfiguredScopes
+	previousScopes := listFeishuAppGrantedScopes
 	defer func() {
 		getFeishuBotInfo = previousBotInfo
-		listFeishuAppConfiguredScopes = previousScopes
+		listFeishuAppGrantedScopes = previousScopes
 	}()
 	getFeishuBotInfo = func(context.Context, feishu.LiveGatewayConfig) (feishu.BotInfo, error) {
 		return feishu.BotInfo{AppName: "New Bot", OpenID: "ou_bot"}, nil
 	}
-	listFeishuAppConfiguredScopes = func(context.Context, feishu.LiveGatewayConfig) ([]feishu.AppScopeStatus, error) {
+	listFeishuAppGrantedScopes = func(context.Context, feishu.LiveGatewayConfig) ([]feishu.AppScopeStatus, error) {
 		return []feishu.AppScopeStatus{
 			{ScopeName: "im:message.group_msg", ScopeType: "tenant", GrantStatus: 1},
 		}, nil
@@ -64,7 +64,7 @@ func TestForceRefreshFeishuBotFactsPersistsNameOpenIDAndScopes(t *testing.T) {
 	if !ok {
 		t.Fatal("expected facts to persist")
 	}
-	if persisted.AppName != "New Bot" || persisted.BotOpenID != "ou_bot" || len(persisted.Scopes) != 1 {
+	if persisted.AppName != "New Bot" || persisted.BotOpenID != "ou_bot" || len(persisted.Scopes) != 1 || persisted.ScopesSource != feishufacts.ScopesSourceGranted {
 		t.Fatalf("persisted facts = %#v", persisted)
 	}
 }
@@ -89,21 +89,23 @@ func TestForceRefreshFeishuBotFactsKeepsOldValuesOnFailure(t *testing.T) {
 		Scopes: []feishufacts.ScopeStatus{
 			{ScopeName: "im:message.group_msg", ScopeType: "tenant", GrantStatus: 1},
 		},
-		FetchedAt: old,
+		FetchedAt:       old,
+		ScopesFetchedAt: old,
+		ScopesSource:    feishufacts.ScopesSourceGranted,
 	}); err != nil {
 		t.Fatalf("seed facts: %v", err)
 	}
 
 	previousBotInfo := getFeishuBotInfo
-	previousScopes := listFeishuAppConfiguredScopes
+	previousScopes := listFeishuAppGrantedScopes
 	defer func() {
 		getFeishuBotInfo = previousBotInfo
-		listFeishuAppConfiguredScopes = previousScopes
+		listFeishuAppGrantedScopes = previousScopes
 	}()
 	getFeishuBotInfo = func(context.Context, feishu.LiveGatewayConfig) (feishu.BotInfo, error) {
 		return feishu.BotInfo{}, errors.New("bot info failed")
 	}
-	listFeishuAppConfiguredScopes = func(context.Context, feishu.LiveGatewayConfig) ([]feishu.AppScopeStatus, error) {
+	listFeishuAppGrantedScopes = func(context.Context, feishu.LiveGatewayConfig) ([]feishu.AppScopeStatus, error) {
 		return nil, errors.New("scopes failed")
 	}
 
@@ -116,6 +118,9 @@ func TestForceRefreshFeishuBotFactsKeepsOldValuesOnFailure(t *testing.T) {
 	}
 	if len(record.Scopes) != 1 || record.Scopes[0].ScopeName != "im:message.group_msg" {
 		t.Fatalf("refresh wiped old scopes: %#v", record.Scopes)
+	}
+	if record.ScopesSource != feishufacts.ScopesSourceGranted || !record.ScopesFetchedAt.Equal(old) || feishuFactsScopesFresh(record, old) {
+		t.Fatalf("failed refresh changed grant provenance or retained freshness: %#v", record)
 	}
 	if record.LastError == "" || record.LastErrorAt.IsZero() {
 		t.Fatalf("expected last error to be recorded: %#v", record)
@@ -149,15 +154,15 @@ func TestForceRefreshFeishuBotFactsMergesPartialSuccess(t *testing.T) {
 	}
 
 	previousBotInfo := getFeishuBotInfo
-	previousScopes := listFeishuAppConfiguredScopes
+	previousScopes := listFeishuAppGrantedScopes
 	defer func() {
 		getFeishuBotInfo = previousBotInfo
-		listFeishuAppConfiguredScopes = previousScopes
+		listFeishuAppGrantedScopes = previousScopes
 	}()
 	getFeishuBotInfo = func(context.Context, feishu.LiveGatewayConfig) (feishu.BotInfo, error) {
 		return feishu.BotInfo{AppName: "New Bot", OpenID: "ou_new"}, nil
 	}
-	listFeishuAppConfiguredScopes = func(context.Context, feishu.LiveGatewayConfig) ([]feishu.AppScopeStatus, error) {
+	listFeishuAppGrantedScopes = func(context.Context, feishu.LiveGatewayConfig) ([]feishu.AppScopeStatus, error) {
 		return nil, errors.New("scopes failed")
 	}
 
@@ -186,15 +191,15 @@ func TestMaybeStartFeishuFactsRefreshRefreshesConfiguredApps(t *testing.T) {
 	app.configureFeishuFactsStateLocked(stateDir)
 
 	previousBotInfo := getFeishuBotInfo
-	previousScopes := listFeishuAppConfiguredScopes
+	previousScopes := listFeishuAppGrantedScopes
 	defer func() {
 		getFeishuBotInfo = previousBotInfo
-		listFeishuAppConfiguredScopes = previousScopes
+		listFeishuAppGrantedScopes = previousScopes
 	}()
 	getFeishuBotInfo = func(context.Context, feishu.LiveGatewayConfig) (feishu.BotInfo, error) {
 		return feishu.BotInfo{AppName: "Scheduled Bot", OpenID: "ou_scheduled"}, nil
 	}
-	listFeishuAppConfiguredScopes = func(context.Context, feishu.LiveGatewayConfig) ([]feishu.AppScopeStatus, error) {
+	listFeishuAppGrantedScopes = func(context.Context, feishu.LiveGatewayConfig) ([]feishu.AppScopeStatus, error) {
 		return []feishu.AppScopeStatus{
 			{ScopeName: "im:message.group_msg", ScopeType: "tenant", GrantStatus: 1},
 		}, nil
@@ -241,16 +246,16 @@ func TestMaybeStartFeishuFactsRefreshThrottlesBeforeNextRefresh(t *testing.T) {
 	app.feishuFactsState.nextRefresh = now.Add(time.Hour)
 
 	previousBotInfo := getFeishuBotInfo
-	previousScopes := listFeishuAppConfiguredScopes
+	previousScopes := listFeishuAppGrantedScopes
 	defer func() {
 		getFeishuBotInfo = previousBotInfo
-		listFeishuAppConfiguredScopes = previousScopes
+		listFeishuAppGrantedScopes = previousScopes
 	}()
 	getFeishuBotInfo = func(context.Context, feishu.LiveGatewayConfig) (feishu.BotInfo, error) {
 		t.Fatal("bot info fetch should not run before next refresh")
 		return feishu.BotInfo{}, nil
 	}
-	listFeishuAppConfiguredScopes = func(context.Context, feishu.LiveGatewayConfig) ([]feishu.AppScopeStatus, error) {
+	listFeishuAppGrantedScopes = func(context.Context, feishu.LiveGatewayConfig) ([]feishu.AppScopeStatus, error) {
 		t.Fatal("scope fetch should not run before next refresh")
 		return nil, nil
 	}
@@ -280,13 +285,14 @@ func TestPrimaryPermissionCheckerUsesFreshFactsWhenNotForced(t *testing.T) {
 		},
 		FetchedAt:       time.Now().UTC(),
 		ScopesFetchedAt: time.Now().UTC(),
+		ScopesSource:    feishufacts.ScopesSourceGranted,
 	}); err != nil {
 		t.Fatalf("seed facts: %v", err)
 	}
 
-	previousScopes := listFeishuAppConfiguredScopes
-	defer func() { listFeishuAppConfiguredScopes = previousScopes }()
-	listFeishuAppConfiguredScopes = func(context.Context, feishu.LiveGatewayConfig) ([]feishu.AppScopeStatus, error) {
+	previousScopes := listFeishuAppGrantedScopes
+	defer func() { listFeishuAppGrantedScopes = previousScopes }()
+	listFeishuAppGrantedScopes = func(context.Context, feishu.LiveGatewayConfig) ([]feishu.AppScopeStatus, error) {
 		t.Fatal("scope fetch should not run when facts are fresh")
 		return nil, nil
 	}
@@ -321,16 +327,16 @@ func TestPrimaryPermissionCheckerForceRefreshUpdatesFacts(t *testing.T) {
 		t.Fatalf("seed facts: %v", err)
 	}
 
-	previousScopes := listFeishuAppConfiguredScopes
+	previousScopes := listFeishuAppGrantedScopes
 	previousBotInfo := getFeishuBotInfo
 	defer func() {
-		listFeishuAppConfiguredScopes = previousScopes
+		listFeishuAppGrantedScopes = previousScopes
 		getFeishuBotInfo = previousBotInfo
 	}()
 	getFeishuBotInfo = func(context.Context, feishu.LiveGatewayConfig) (feishu.BotInfo, error) {
 		return feishu.BotInfo{}, nil
 	}
-	listFeishuAppConfiguredScopes = func(context.Context, feishu.LiveGatewayConfig) ([]feishu.AppScopeStatus, error) {
+	listFeishuAppGrantedScopes = func(context.Context, feishu.LiveGatewayConfig) ([]feishu.AppScopeStatus, error) {
 		return []feishu.AppScopeStatus{
 			{ScopeName: "im:message.group_msg", ScopeType: "tenant", GrantStatus: 1},
 		}, nil
@@ -369,6 +375,7 @@ func TestPrimaryPermissionCheckerIgnoresFactsAfterScopeFetchFailure(t *testing.T
 		},
 		FetchedAt:       now,
 		ScopesFetchedAt: now,
+		ScopesSource:    feishufacts.ScopesSourceGranted,
 		ScopesError:     "scopes failed",
 		LastError:       "scopes failed",
 	}); err != nil {
@@ -376,15 +383,15 @@ func TestPrimaryPermissionCheckerIgnoresFactsAfterScopeFetchFailure(t *testing.T
 	}
 
 	previousBotInfo := getFeishuBotInfo
-	previousScopes := listFeishuAppConfiguredScopes
+	previousScopes := listFeishuAppGrantedScopes
 	defer func() {
 		getFeishuBotInfo = previousBotInfo
-		listFeishuAppConfiguredScopes = previousScopes
+		listFeishuAppGrantedScopes = previousScopes
 	}()
 	getFeishuBotInfo = func(context.Context, feishu.LiveGatewayConfig) (feishu.BotInfo, error) {
 		return feishu.BotInfo{}, nil
 	}
-	listFeishuAppConfiguredScopes = func(context.Context, feishu.LiveGatewayConfig) ([]feishu.AppScopeStatus, error) {
+	listFeishuAppGrantedScopes = func(context.Context, feishu.LiveGatewayConfig) ([]feishu.AppScopeStatus, error) {
 		return nil, errors.New("scopes failed")
 	}
 
@@ -507,15 +514,15 @@ func TestFeishuAppFactsRefreshUpdatesPersistedFacts(t *testing.T) {
 	}
 
 	previousBotInfo := getFeishuBotInfo
-	previousScopes := listFeishuAppConfiguredScopes
+	previousScopes := listFeishuAppGrantedScopes
 	defer func() {
 		getFeishuBotInfo = previousBotInfo
-		listFeishuAppConfiguredScopes = previousScopes
+		listFeishuAppGrantedScopes = previousScopes
 	}()
 	getFeishuBotInfo = func(context.Context, feishu.LiveGatewayConfig) (feishu.BotInfo, error) {
 		return feishu.BotInfo{AppName: "Synced Bot", OpenID: "ou_synced"}, nil
 	}
-	listFeishuAppConfiguredScopes = func(context.Context, feishu.LiveGatewayConfig) ([]feishu.AppScopeStatus, error) {
+	listFeishuAppGrantedScopes = func(context.Context, feishu.LiveGatewayConfig) ([]feishu.AppScopeStatus, error) {
 		return []feishu.AppScopeStatus{
 			{ScopeName: "im:message.group_msg", ScopeType: "tenant", GrantStatus: 1},
 		}, nil
@@ -544,15 +551,15 @@ func TestRefreshFeishuBotFactsPushesOpenIDToRunningGateway(t *testing.T) {
 	app.configureFeishuFactsStateLocked(t.TempDir())
 
 	previousBotInfo := getFeishuBotInfo
-	previousScopes := listFeishuAppConfiguredScopes
+	previousScopes := listFeishuAppGrantedScopes
 	defer func() {
 		getFeishuBotInfo = previousBotInfo
-		listFeishuAppConfiguredScopes = previousScopes
+		listFeishuAppGrantedScopes = previousScopes
 	}()
 	getFeishuBotInfo = func(context.Context, feishu.LiveGatewayConfig) (feishu.BotInfo, error) {
 		return feishu.BotInfo{AppName: "Bot", OpenID: "ou_bot"}, nil
 	}
-	listFeishuAppConfiguredScopes = func(context.Context, feishu.LiveGatewayConfig) ([]feishu.AppScopeStatus, error) {
+	listFeishuAppGrantedScopes = func(context.Context, feishu.LiveGatewayConfig) ([]feishu.AppScopeStatus, error) {
 		return nil, nil
 	}
 
@@ -571,4 +578,36 @@ type botOpenIDSettingGateway struct {
 
 func (g *botOpenIDSettingGateway) SetBotOpenID(gatewayID, openID string) {
 	g.setCalls = append(g.setCalls, gatewayID+"|"+openID)
+}
+
+func TestFeishuFactsScopesFreshRejectsLegacyConfiguredEvidence(t *testing.T) {
+	now := time.Now().UTC()
+	legacy := feishufacts.Record{ScopesFetchedAt: now, Scopes: []feishufacts.ScopeStatus{{ScopeName: "im:message", ScopeType: "tenant", GrantStatus: 1}}}
+	if feishuFactsScopesFresh(legacy, now) {
+		t.Fatal("legacy configured cache must not count as fresh granted evidence")
+	}
+}
+
+func TestPrimaryPermissionCheckerRefreshesLegacyConfiguredFacts(t *testing.T) {
+	app := New(":0", ":0", &recordingGateway{}, serverIdentityForTest())
+	app.admin.loadConfig = func() (config.LoadedAppConfig, error) {
+		return config.LoadedAppConfig{Config: config.AppConfig{Feishu: config.FeishuSettings{Apps: []config.FeishuAppConfig{{ID: "main", AppID: "cli_test", AppSecret: "secret"}}}}}, nil
+	}
+	app.configureFeishuFactsStateLocked(t.TempDir())
+	now := time.Now().UTC()
+	if err := app.feishuFactsState.store.Put(feishufacts.Record{GatewayID: "main", AppID: "cli_test", ScopesFetchedAt: now, Scopes: []feishufacts.ScopeStatus{{ScopeName: "im:message.group_msg", ScopeType: "tenant", GrantStatus: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	previousScopes, previousBot := listFeishuAppGrantedScopes, getFeishuBotInfo
+	defer func() { listFeishuAppGrantedScopes, getFeishuBotInfo = previousScopes, previousBot }()
+	getFeishuBotInfo = func(context.Context, feishu.LiveGatewayConfig) (feishu.BotInfo, error) { return feishu.BotInfo{}, nil }
+	calls := 0
+	listFeishuAppGrantedScopes = func(context.Context, feishu.LiveGatewayConfig) ([]feishu.AppScopeStatus, error) {
+		calls++
+		return []feishu.AppScopeStatus{{ScopeName: "im:message.group_msg", ScopeType: "tenant", GrantStatus: 2}}, nil
+	}
+	decision := app.CheckPrimaryBotPermission(context.Background(), orchestrator.PrimaryBotPermissionRequest{GatewayID: "main"})
+	if calls != 1 || decision.Allowed {
+		t.Fatalf("legacy facts allowed without actual grant: calls=%d decision=%#v", calls, decision)
+	}
 }

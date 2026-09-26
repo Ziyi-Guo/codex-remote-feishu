@@ -220,15 +220,17 @@ type Snapshot struct {
 }
 
 type PermissionGapSummary struct {
-	Scope        string
-	ScopeType    string
-	ApplyURL     string
-	SourceAPI    string
-	ErrorCode    int
-	FirstSeenAt  time.Time
-	LastSeenAt   time.Time
-	LastVerified time.Time
-	HitCount     int
+	UnresolvedPermissions []string
+	Scopes                []string
+	Scope                 string
+	ScopeType             string
+	ApplyURL              string
+	SourceAPI             string
+	ErrorCode             int
+	FirstSeenAt           time.Time
+	LastSeenAt            time.Time
+	LastVerified          time.Time
+	HitCount              int
 }
 
 type AttachmentSummary struct {

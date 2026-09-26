@@ -1,8 +1,8 @@
 # 安装与部署设计
 
 > Type: `general`
-> Updated: `2026-08-11`
-> Summary: 修正 upgrade helper 当前来源：安装文档只保留升级事务边界，完整时序以本地自升级流程文档为准。
+> Updated: `2026-09-26`
+> Summary: 权限说明改为逐操作的应用身份需求，并区分配置、授权和资源访问权。
 
 ## 1. 范围
 
@@ -699,9 +699,7 @@ Windows NSIS installer 的额外验证要求：
 - 机器人发送文本 / 卡片 / reaction 的能力
 - P2P 单聊消息权限
 
-如果要启用 assistant 最终回复里的本地 `.md` 预览，推荐额外开通：
-
-- `drive:drive`
+如果要启用 assistant 最终回复里的本地 `.md` 预览，按 [飞书权限矩阵](../../deploy/feishu/README.md#权限导入-json) 补齐对应的 tenant 权限。配置诊断与实际授权分别读取；user 授权不能解除 tenant API 的缺口。
 
 ## 9. 示例
 
