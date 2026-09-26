@@ -17,7 +17,8 @@ const feishuFactsFreshTTL = 2 * time.Minute
 var getFeishuBotInfo = feishu.GetBotInfo
 
 func feishuFactsScopesFresh(record feishufacts.Record, now time.Time) bool {
-	return !record.ScopesFetchedAt.IsZero() &&
+	return record.ScopesSource == feishufacts.ScopesSourceGranted &&
+		!record.ScopesFetchedAt.IsZero() &&
 		record.ScopesError == "" &&
 		now.Sub(record.ScopesFetchedAt) <= feishuFactsFreshTTL
 }
@@ -103,7 +104,7 @@ func (a *App) RefreshFeishuBotFacts(ctx context.Context, gatewayID string) (feis
 		AppSecret: runtimeCfg.AppSecret,
 	}
 	botInfo, botErr := getFeishuBotInfo(ctx, cfg)
-	scopes, scopeErr := listFeishuAppConfiguredScopes(ctx, cfg)
+	scopes, scopeErr := listFeishuAppGrantedScopes(ctx, cfg)
 	now := time.Now().UTC()
 
 	record, _ := a.FeishuBotFacts(gatewayID)
@@ -118,6 +119,7 @@ func (a *App) RefreshFeishuBotFacts(ctx context.Context, gatewayID string) (feis
 	}
 	if scopeErr == nil {
 		record.Scopes = feishuFactsScopesFromAppScopes(scopes)
+		record.ScopesSource = feishufacts.ScopesSourceGranted
 		record.ScopesFetchedAt = now
 		record.ScopesError = ""
 	} else {
@@ -159,12 +161,7 @@ func (a *App) RefreshFeishuBotFacts(ctx context.Context, gatewayID string) (feis
 }
 
 func (a *App) afterFeishuFactsRefresh(gatewayID string, scopes []feishu.AppScopeStatus, scopeErr error) {
-	a.feishuRuntime.permissionMu.RLock()
-	hasGaps := len(a.feishuRuntime.permissionGaps[gatewayID]) != 0
-	a.feishuRuntime.permissionMu.RUnlock()
-	if hasGaps {
-		a.applyFeishuPermissionVerificationResult(gatewayID, scopes, scopeErr)
-	}
+	a.applyFeishuPermissionVerificationResult(gatewayID, scopes, scopeErr)
 }
 
 func feishuFactsScopesFromAppScopes(scopes []feishu.AppScopeStatus) []feishufacts.ScopeStatus {

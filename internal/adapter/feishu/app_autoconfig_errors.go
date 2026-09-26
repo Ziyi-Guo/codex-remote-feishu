@@ -85,10 +85,10 @@ func autoConfigReadAPIErrorSummary(apiErr *APIError) (string, string) {
 		return "当前飞书应用凭证已经失效，请重新连接飞书机器人。", autoConfigBlockingCredentialIssue
 	}
 	if apiErr.StatusCode == http.StatusForbidden || len(apiErr.PermissionViolations) > 0 {
-		return "当前凭证没有修改飞书应用配置的权限，请使用有权限的管理员账号处理。", autoConfigBlockingPermissionIssue
+		return "当前应用缺少读取飞书配置所需的权限，请在飞书开发者后台检查并开通。", autoConfigBlockingPermissionIssue
 	}
 	if _, ok := ExtractPermissionGap(apiErr); ok {
-		return "当前凭证缺少修改飞书应用配置所需的权限，请在飞书后台处理。", autoConfigBlockingPermissionIssue
+		return "当前凭证缺少读取飞书应用配置所需的权限，请在飞书后台处理。", autoConfigBlockingPermissionIssue
 	}
 	return autoConfigReadFailureSummary()
 }

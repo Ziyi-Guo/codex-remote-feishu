@@ -1,8 +1,8 @@
 # Feishu Markdown 预览设计
 
 > Type: `implemented`
-> Updated: `2026-04-09`
-> Summary: 文档已同步到 fixed-root remote-first inventory 语义，移除旧的 marker / 文件名前缀 / reconcile 依赖描述。
+> Updated: `2026-09-26`
+> Summary: 权限说明改为逐操作的应用身份需求，并区分配置、授权和资源访问权。
 
 ## 1. 文档定位
 
@@ -376,9 +376,9 @@ V1 当前实际只识别 **assistant final block** 里的 Markdown 链接目标�
 - 事件订阅：`application.bot.menu_v6`
 - 事件订阅：`card.action.trigger`
 - 若需要和机器人单聊：P2P 消息接收权限
-- 若要启用 `.md` 预览：推荐直接开通 `drive:drive`
+- 若要启用 `.md` 预览：按 `deploy/feishu/README.md` 开通对应的应用身份操作权限；既有 `drive:drive` 保持兼容
 
-`drive:drive` 在当前实现中覆盖了这些实际调用：
+权限矩阵按以下实际调用核对，某一个只读权限不代表整个预览功能已获授权：
 
 - 自动创建根目录和会话目录
 - 上传 Markdown 文件

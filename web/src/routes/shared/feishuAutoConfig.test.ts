@@ -43,6 +43,21 @@ describe("feishu auto-config shared helpers", () => {
     );
   });
 
+  it("keeps the same missing scope in both identities and deduplicates within each", () => {
+    const plan = makeAutoConfigPlan();
+    plan.diff.missingScopes = [
+      { scope: "space:document:retrieve", scopeType: "user" },
+      { scope: "space:document:retrieve", scopeType: "tenant" },
+      { scope: "space:document:retrieve", scopeType: "tenant" },
+    ];
+    expect(JSON.parse(buildMissingScopesImportJSON(plan))).toEqual({
+      scopes: {
+        tenant: ["space:document:retrieve"],
+        user: ["space:document:retrieve"],
+      },
+    });
+  });
+
   it("returns empty tenant/user groups when no scopes are missing", () => {
     expect(buildMissingScopesImportJSON(makeAutoConfigPlan())).toBe(
       JSON.stringify({ scopes: { tenant: [], user: [] } }, null, 2),
@@ -136,7 +151,7 @@ describe("feishu auto-config shared helpers", () => {
 
   it("maps blocking reasons through a user-facing allowlist", () => {
     expect(describeAutoConfigBlockingReason("feishu_read_failed")).toContain("读取飞书应用配置");
-    expect(describeAutoConfigBlockingReason("permission_denied")).toContain("没有修改飞书应用配置的权限");
+    expect(describeAutoConfigBlockingReason("permission_denied")).toContain("缺少读取飞书配置所需的权限");
     expect(describeAutoConfigBlockingReason("credential_invalid")).toContain("凭证已经失效");
   });
 

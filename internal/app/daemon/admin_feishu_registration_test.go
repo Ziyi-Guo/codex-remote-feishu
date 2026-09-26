@@ -51,12 +51,12 @@ func TestFeishuOnboardingRegistrationRunnerUpdatesSession(t *testing.T) {
 	}
 	for _, want := range []string{
 		"application:application:self_manage",
-		"bitable:app",
-		"drive:drive",
+		"base:record:retrieve",
+		"space:document:retrieve",
 		"im:message.group_at_msg.include_bot:readonly",
 		"im:message.group_at_msg:readonly",
 		"im:message.group_msg",
-		"im:chat:readonly",
+		"im:chat:read",
 		"im:message.p2p_msg:readonly",
 		"im:message.reactions:read",
 		"im:message.reactions:write_only",

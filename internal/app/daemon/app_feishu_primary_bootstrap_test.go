@@ -251,6 +251,7 @@ func seedPrimaryBootstrapFacts(t *testing.T, app *App, gatewayID string, scopes 
 		Scopes:          scopes,
 		FetchedAt:       now,
 		ScopesFetchedAt: now,
+		ScopesSource:    feishufacts.ScopesSourceGranted,
 	}); err != nil {
 		t.Fatalf("seed facts: %v", err)
 	}

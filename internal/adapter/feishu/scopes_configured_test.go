@@ -84,3 +84,40 @@ func TestListAppConfiguredScopesFallsBackToGrantedScopesWhenConfigSideIsUnavaila
 		t.Fatalf("scopes = %#v, want %#v", scopes, want)
 	}
 }
+
+func TestListAppGrantedScopesUsesGrantStatusInsteadOfConfiguredPresence(t *testing.T) {
+	appID := "cli_granted_scopes"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/open-apis/auth/v3/tenant_access_token/internal":
+			_, _ = w.Write([]byte(`{"code":0,"msg":"ok","tenant_access_token":"tenant-token"}`))
+		case "/open-apis/application/v6/applications/" + appID:
+			_, _ = w.Write([]byte(`{"code":0,"data":{"app":{"scopes":[{"scope":"im:message","token_types":["tenant"]}]}}}`))
+		case "/open-apis/application/v6/scopes":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"scopes":[{"scope_name":"im:message","scope_type":"tenant","grant_status":2},{"scope_name":"im:message","scope_type":"user","grant_status":1},{"scope_name":"drive:drive","grant_status":1}]}}`))
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	cfg := LiveGatewayConfig{GatewayID: "main", AppID: appID, AppSecret: "secret", Domain: server.URL}
+	configured, err := ListAppConfiguredScopes(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := MatchScopeRequirement("im:message", "tenant", configured); !ok {
+		t.Fatal("fixture must have configured tenant scope")
+	}
+	granted, err := ListAppGrantedScopes(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []AppScopeStatus{{ScopeName: "im:message", ScopeType: "tenant", GrantStatus: 2}, {ScopeName: "im:message", ScopeType: "user", GrantStatus: 1}, {ScopeName: "drive:drive", GrantStatus: 1}}
+	if !reflect.DeepEqual(granted, want) {
+		t.Fatalf("granted scopes = %#v, want %#v", granted, want)
+	}
+	if _, ok := MatchScopeRequirement("im:message", "tenant", granted); ok {
+		t.Fatal("configured but ungranted tenant scope must not authorize")
+	}
+}

@@ -65,107 +65,58 @@ func DefaultManifest() Manifest {
 			Description: menu.Description,
 		})
 	}
+	requirements := []ScopeRequirement{
+		{Scope: "application:application:self_manage", ScopeType: "tenant", Feature: "setup_app_management", Required: true},
+		{Scope: "space:document:retrieve", ScopeType: "tenant", Feature: "markdown_preview", Required: true},
+		{Scope: "space:folder:create", ScopeType: "tenant", Feature: "markdown_preview", Required: true},
+		{Scope: "drive:file:upload", ScopeType: "tenant", Feature: "markdown_preview", Required: true},
+		{Scope: "space:document:delete", ScopeType: "tenant", Feature: "markdown_preview", Required: true},
+		{Scope: "drive:drive.metadata:readonly", ScopeType: "tenant", Feature: "markdown_preview", Required: true},
+		{Scope: "docs:permission.member:create", ScopeType: "tenant", Feature: "markdown_preview", Required: true},
+		{Scope: "docs:permission.member:retrieve", ScopeType: "tenant", Feature: "markdown_preview", Required: true},
+		{Scope: "base:app:create", ScopeType: "tenant", Feature: "cron_bitable", Required: true},
+		{Scope: "base:app:read", ScopeType: "tenant", Feature: "cron_bitable", Required: true},
+		{Scope: "base:table:read", ScopeType: "tenant", Feature: "cron_bitable", Required: true},
+		{Scope: "base:table:create", ScopeType: "tenant", Feature: "cron_bitable", Required: true},
+		{Scope: "base:table:update", ScopeType: "tenant", Feature: "cron_bitable", Required: true},
+		{Scope: "base:field:read", ScopeType: "tenant", Feature: "cron_bitable", Required: true},
+		{Scope: "base:field:create", ScopeType: "tenant", Feature: "cron_bitable", Required: true},
+		{Scope: "base:field:update", ScopeType: "tenant", Feature: "cron_bitable", Required: true},
+		{Scope: "base:record:retrieve", ScopeType: "tenant", Feature: "cron_bitable", Required: true},
+		{Scope: "base:record:create", ScopeType: "tenant", Feature: "cron_bitable", Required: true},
+		{Scope: "base:record:update", ScopeType: "tenant", Feature: "cron_bitable", Required: true},
+		{Scope: "docs:permission.member:create", ScopeType: "tenant", Feature: "cron_bitable", Required: true},
+		{Scope: "docs:permission.member:retrieve", ScopeType: "tenant", Feature: "cron_bitable", Required: true},
+		{Scope: "docs:permission.member:update", ScopeType: "tenant", Feature: "cron_bitable", Required: true},
+		{Scope: "im:message:readonly", ScopeType: "tenant", Feature: "core_message_flow", Required: true},
+		{Scope: "im:message.group_at_msg:readonly", ScopeType: "tenant", Feature: "group_mentions", Required: true},
+		{Scope: "im:message.group_at_msg.include_bot:readonly", ScopeType: "tenant", Feature: "group_mentions", Required: true},
+		{Scope: "im:message.group_msg", ScopeType: "tenant", Feature: "primary_room_bot", Required: true},
+		{Scope: "im:chat:read", ScopeType: "tenant", Feature: "primary_room_auto_bootstrap", Required: true},
+		{Scope: "im:message.p2p_msg:readonly", ScopeType: "tenant", Feature: "p2p_chat", Required: true},
+		{Scope: "im:message.reactions:read", ScopeType: "tenant", Feature: "reaction_feedback", Required: true},
+		{Scope: "im:message.reactions:write_only", ScopeType: "tenant", Feature: "reaction_feedback", Required: true},
+		{Scope: "im:message:send_as_bot", ScopeType: "tenant", Feature: "core_message_flow", Required: true},
+		{Scope: "im:resource:upload", ScopeType: "tenant", Feature: "core_message_flow", Required: true},
+	}
+	scopes := PermissionScopes{Tenant: []string{}, User: []string{}}
+	seen := make(map[string]bool)
+	for _, requirement := range requirements {
+		key := requirement.ScopeType + ":" + requirement.Scope
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		switch requirement.ScopeType {
+		case "tenant":
+			scopes.Tenant = append(scopes.Tenant, requirement.Scope)
+		case "user":
+			scopes.User = append(scopes.User, requirement.Scope)
+		}
+	}
 	return Manifest{
-		Scopes: ScopesImport{
-			Scopes: PermissionScopes{
-				Tenant: []string{
-					"application:application:self_manage",
-					"drive:drive",
-					"bitable:app",
-					"im:message:readonly",
-					"im:message.group_at_msg:readonly",
-					"im:message.group_at_msg.include_bot:readonly",
-					"im:message.group_msg",
-					"im:chat:readonly",
-					"im:message.p2p_msg:readonly",
-					"im:message.reactions:read",
-					"im:message.reactions:write_only",
-					"im:message:send_as_bot",
-					"im:resource:upload",
-				},
-				User: []string{},
-			},
-		},
-		ScopeRequirements: []ScopeRequirement{
-			{
-				Scope:     "application:application:self_manage",
-				ScopeType: "tenant",
-				Feature:   "setup_app_management",
-				Required:  true,
-			},
-			{
-				Scope:     "drive:drive",
-				ScopeType: "tenant",
-				Feature:   "markdown_preview",
-				Required:  true,
-			},
-			{
-				Scope:     "bitable:app",
-				ScopeType: "tenant",
-				Feature:   "cron_bitable",
-				Required:  true,
-			},
-			{
-				Scope:     "im:message:readonly",
-				ScopeType: "tenant",
-				Feature:   "core_message_flow",
-				Required:  true,
-			},
-			{
-				Scope:     "im:message.group_at_msg:readonly",
-				ScopeType: "tenant",
-				Feature:   "group_mentions",
-				Required:  true,
-			},
-			{
-				Scope:     "im:message.group_at_msg.include_bot:readonly",
-				ScopeType: "tenant",
-				Feature:   "group_mentions",
-				Required:  true,
-			},
-			{
-				Scope:     "im:message.group_msg",
-				ScopeType: "tenant",
-				Feature:   "primary_room_bot",
-				Required:  true,
-			},
-			{
-				Scope:     "im:chat:readonly",
-				ScopeType: "tenant",
-				Feature:   "primary_room_auto_bootstrap",
-				Required:  true,
-			},
-			{
-				Scope:     "im:message.p2p_msg:readonly",
-				ScopeType: "tenant",
-				Feature:   "p2p_chat",
-				Required:  true,
-			},
-			{
-				Scope:     "im:message.reactions:read",
-				ScopeType: "tenant",
-				Feature:   "reaction_feedback",
-				Required:  true,
-			},
-			{
-				Scope:     "im:message.reactions:write_only",
-				ScopeType: "tenant",
-				Feature:   "reaction_feedback",
-				Required:  true,
-			},
-			{
-				Scope:     "im:message:send_as_bot",
-				ScopeType: "tenant",
-				Feature:   "core_message_flow",
-				Required:  true,
-			},
-			{
-				Scope:     "im:resource:upload",
-				ScopeType: "tenant",
-				Feature:   "core_message_flow",
-				Required:  true,
-			},
-		},
+		Scopes:            ScopesImport{Scopes: scopes},
+		ScopeRequirements: requirements,
 		Events: []EventRequirement{
 			{
 				Event:    "im.message.receive_v1",

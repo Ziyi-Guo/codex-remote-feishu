@@ -136,3 +136,79 @@ func (g *permissionClearingGateway) ClearGrantedPermissionBlocks(gatewayID strin
 		scopes:    append([]feishu.AppScopeStatus(nil), scopes...),
 	})
 }
+
+func TestPermissionVerificationDoesNotCrossIdentities(t *testing.T) {
+	for _, identity := range []string{"tenant", ""} {
+		app := New(":0", ":0", &recordingGateway{}, serverIdentityForTest())
+		app.observeFeishuPermissionError("app-1", &feishu.APIError{PermissionViolations: []feishu.APIErrorPermissionViolation{{Type: identity, Subject: "drive:drive"}}})
+		app.applyFeishuPermissionVerificationResult("app-1", []feishu.AppScopeStatus{{ScopeName: "drive:drive", ScopeType: "user", GrantStatus: 1}}, nil)
+		if got := app.snapshotFeishuPermissionGaps("app-1"); len(got) != 1 {
+			t.Fatalf("%q gap cleared by user grant: %#v", identity, got)
+		}
+	}
+}
+
+func TestPermissionVerificationKeepsDifferentAPIRequirements(t *testing.T) {
+	app := New(":0", ":0", &recordingGateway{}, serverIdentityForTest())
+	app.observeFeishuPermissionError("app-1", &feishu.APIError{API: "drive.v1.file.list", Msg: "One of the following scopes is required: [drive:drive, drive:drive:readonly]", PermissionViolations: []feishu.APIErrorPermissionViolation{{Type: "tenant", Subject: "drive:drive"}}})
+	app.observeFeishuPermissionError("app-1", &feishu.APIError{API: "drive.v1.file.upload_all", PermissionViolations: []feishu.APIErrorPermissionViolation{{Type: "tenant", Subject: "drive:drive"}}})
+	if got := app.snapshotFeishuPermissionGaps("app-1"); len(got) != 2 {
+		t.Fatalf("requirements conflated: %#v", got)
+	}
+	app.applyFeishuPermissionVerificationResult("app-1", []feishu.AppScopeStatus{{ScopeName: "drive:drive:readonly", ScopeType: "tenant", GrantStatus: 1}}, nil)
+	if got := app.snapshotFeishuPermissionGaps("app-1"); len(got) != 1 || got[0].SourceAPI != "drive.v1.file.upload_all" {
+		t.Fatalf("write gap cleared: %#v", got)
+	}
+}
+
+func TestPermissionVerificationForwardsGrantsWithoutUIGaps(t *testing.T) {
+	gateway := &permissionClearingGateway{}
+	app := New(":0", ":0", gateway, serverIdentityForTest())
+	app.applyFeishuPermissionVerificationResult("app-1", []feishu.AppScopeStatus{{ScopeName: "drive:drive", ScopeType: "tenant", GrantStatus: 1}}, nil)
+	if len(gateway.clearCalls) != 1 {
+		t.Fatal("broker refresh skipped when UI has no gap")
+	}
+}
+
+func TestFeaturePermissionRequiresEveryOperation(t *testing.T) {
+	requirements := feishuScopeRequirementsByFeature("cron_bitable")
+	if len(requirements) < 2 {
+		t.Fatalf("Cron requires multiple API operations; got %#v", requirements)
+	}
+	partial := []feishu.AppScopeStatus{
+		{ScopeName: "base:app:create", ScopeType: "tenant", GrantStatus: 1},
+		{ScopeName: "base:table:read", ScopeType: "tenant", GrantStatus: 1},
+	}
+	if decision := feishuScopePermissionDecisionFromScopes(requirements, partial, nil); decision.Allowed {
+		t.Fatalf("partial operations allowed Cron: %#v", decision)
+	}
+	broad := []feishu.AppScopeStatus{{ScopeName: "bitable:app", ScopeType: "tenant", GrantStatus: 1}}
+	if decision := feishuScopePermissionDecisionFromScopes(requirements, broad, nil); !decision.Allowed {
+		t.Fatalf("legacy broad grant denied: %#v", decision)
+	}
+}
+
+func TestFactsRefreshAlwaysVerifiesBrokerWithoutUIGap(t *testing.T) {
+	gateway := &permissionClearingGateway{}
+	app := New(":0", ":0", gateway, serverIdentityForTest())
+	scopes := []feishu.AppScopeStatus{{ScopeName: "drive:file:upload", ScopeType: "tenant", GrantStatus: 1}}
+	app.afterFeishuFactsRefresh("app-1", scopes, nil)
+	if len(gateway.clearCalls) != 1 {
+		t.Fatal("facts refresh skipped broker without UI gap")
+	}
+	app.afterFeishuFactsRefresh("app-1", scopes, errors.New("grant read failed"))
+	if len(gateway.clearCalls) != 1 {
+		t.Fatal("failed refresh cleared broker")
+	}
+}
+
+func TestMixedIndependentPermissionsStayVisibleAfterPartialGrant(t *testing.T) {
+	app := New(":0", ":0", &recordingGateway{}, serverIdentityForTest())
+	app.observeFeishuPermissionError("app-1", &feishu.APIError{PermissionViolations: []feishu.APIErrorPermissionViolation{
+		{Type: "tenant", Subject: "drive:file:upload"}, {Type: "user", Subject: "base:record:update"},
+	}})
+	app.applyFeishuPermissionVerificationResult("app-1", []feishu.AppScopeStatus{{ScopeName: "drive:file:upload", ScopeType: "tenant", GrantStatus: 1}}, nil)
+	if got := app.snapshotFeishuPermissionGaps("app-1"); len(got) != 1 || len(got[0].UnresolvedPermissions) != 2 {
+		t.Fatalf("partial grant hid other identity: %#v", got)
+	}
+}
