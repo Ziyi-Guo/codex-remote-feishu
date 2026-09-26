@@ -44,6 +44,7 @@ var scopeSatisfiers = map[string][]string{
 	},
 	"im:chat:readonly": {
 		"im:chat:readonly",
+		"im:chat:read",
 		"im:chat",
 	},
 	"im:message.reactions:read": {
@@ -54,10 +55,26 @@ var scopeSatisfiers = map[string][]string{
 		"im:resource:upload",
 		"im:resource",
 	},
-	"application:application:self_manage": {
-		"application:application:self_manage",
-		"admin:app.info:readonly",
-	},
+	"space:document:retrieve":         {"space:document:retrieve", "drive:drive", "drive:drive:readonly"},
+	"space:folder:create":             {"space:folder:create", "drive:drive"},
+	"drive:file:upload":               {"drive:file:upload", "drive:drive", "drive:file"},
+	"space:document:delete":           {"space:document:delete", "drive:drive"},
+	"drive:drive.metadata:readonly":   {"drive:drive.metadata:readonly", "drive:drive"},
+	"docs:permission.member:create":   {"docs:permission.member:create", "bitable:app", "wiki:wiki", "docs:doc", "drive:drive", "drive:file", "sheets:spreadsheet", "bitable:bitable"},
+	"docs:permission.member:update":   {"docs:permission.member:update", "bitable:app", "wiki:wiki", "docs:doc", "drive:drive", "drive:file", "sheets:spreadsheet", "bitable:bitable"},
+	"docs:permission.member:retrieve": {"docs:permission.member:retrieve", "bitable:app", "wiki:wiki", "docs:doc", "drive:drive", "sheets:spreadsheet", "bitable:bitable"},
+	"base:app:create":                 {"base:app:create", "bitable:app"},
+	"base:app:read":                   {"base:app:read", "bitable:app", "bitable:app:readonly"},
+	"base:table:read":                 {"base:table:read", "bitable:app", "bitable:app:readonly"},
+	"base:table:create":               {"base:table:create", "bitable:app"},
+	"base:table:update":               {"base:table:update", "bitable:app"},
+	"base:field:read":                 {"base:field:read", "bitable:app", "bitable:app:readonly"},
+	"base:field:create":               {"base:field:create", "bitable:app"},
+	"base:field:update":               {"base:field:update", "bitable:app"},
+	"base:record:retrieve":            {"base:record:retrieve", "bitable:app", "bitable:app:readonly"},
+	"base:record:create":              {"base:record:create", "bitable:app"},
+	"base:record:update":              {"base:record:update", "bitable:app"},
+	"im:chat:read":                    {"im:chat:read", "im:chat", "im:chat:readonly"},
 }
 
 // satisfierScopes returns the scope names that satisfy the given requirement
@@ -79,13 +96,18 @@ func matchScopeRequirement(requirementScope, requirementType string, configuredK
 	return "", false
 }
 
-// MatchScopeRequirement returns the configured scope that satisfies a
+// MatchScopeRequirement returns the granted scope that satisfies a
 // manifest requirement. It is the shared matcher for setup/admin and runtime
 // permission decisions.
-func MatchScopeRequirement(requirementScope, requirementType string, configured []AppScopeStatus) (string, bool) {
-	configuredKeys := make(map[string]bool, len(configured))
-	for _, item := range configured {
-		if !scopeGranted(item) {
+func MatchScopeRequirement(requirementScope, requirementType string, granted []AppScopeStatus) (string, bool) {
+	requirementType = normalizePermissionScopeType(requirementType)
+	if requirementType != "tenant" && requirementType != "user" {
+		return "", false
+	}
+	configuredKeys := make(map[string]bool, len(granted))
+	for _, item := range granted {
+		item.ScopeType = normalizePermissionScopeType(item.ScopeType)
+		if !scopeGranted(item) || (item.ScopeType != "tenant" && item.ScopeType != "user") {
 			continue
 		}
 		configuredKeys[scopeKey(item.ScopeName, item.ScopeType)] = true
@@ -93,11 +115,10 @@ func MatchScopeRequirement(requirementScope, requirementType string, configured 
 	return matchScopeRequirement(requirementScope, requirementType, configuredKeys)
 }
 
-// ListAppConfiguredScopes reads the app's configured scopes from the config
-// side (application.get -> app.scopes) and normalizes config-side presence as
-// granted (GrantStatus=1). For legacy apps that cannot read application.get,
-// it has a narrow scope.list fallback; config-side presence remains the
-// authoritative signal whenever it is available.
+// ListAppConfiguredScopes reads configured app.scopes for setup diagnostics and
+// legacy callers. Presence is normalized to GrantStatus=1 for compatibility;
+// it does not prove an actual grant. Runtime authorization must use
+// ListAppGrantedScopes instead.
 func ListAppConfiguredScopes(ctx context.Context, cfg LiveGatewayConfig) ([]AppScopeStatus, error) {
 	return NewSetupClient(SetupClientConfigFromLiveGatewayConfig(cfg)).ListAppConfiguredScopes(ctx)
 }
@@ -109,9 +130,8 @@ func (c *SetupClient) ListAppConfiguredScopes(ctx context.Context) ([]AppScopeSt
 	if err != nil && canFallbackToGrantedScopes(err) {
 		// Older self-built apps may not have application:self_manage, which
 		// makes application.get unavailable even though scope.list can still
-		// report the bot's granted scopes. Keep application.get authoritative
-		// when it works, but preserve runtime permission checks for those apps.
-		if scopes, fallbackErr := c.listGrantedScopes(ctx); fallbackErr == nil {
+		// report actual grants. Preserve this fallback for diagnostic callers.
+		if scopes, fallbackErr := c.ListAppGrantedScopes(ctx); fallbackErr == nil {
 			return scopes, nil
 		}
 		return nil, err
@@ -151,7 +171,12 @@ func canFallbackToGrantedScopes(err error) bool {
 	return errors.As(err, &apiErr) && apiErr.Code == 99991672
 }
 
-func (c *SetupClient) listGrantedScopes(ctx context.Context) ([]AppScopeStatus, error) {
+// ListAppGrantedScopes reads actual grants and token identities from scope.list.
+func ListAppGrantedScopes(ctx context.Context, cfg LiveGatewayConfig) ([]AppScopeStatus, error) {
+	return NewSetupClient(SetupClientConfigFromLiveGatewayConfig(cfg)).ListAppGrantedScopes(ctx)
+}
+
+func (c *SetupClient) ListAppGrantedScopes(ctx context.Context) ([]AppScopeStatus, error) {
 	_, broker := c.sdk()
 	cfg := c.liveGatewayConfig()
 	resp, err := DoSDK(ctx, broker, CallSpec{
@@ -210,7 +235,6 @@ func scopeGranted(status AppScopeStatus) bool {
 	if status.ScopeName == "" {
 		return false
 	}
-	// The SDK exposes grant_status but does not document the enum inline.
-	// Keep the mapping narrow to avoid false-positive auto-clear.
+	// scope.list documents 1 as granted and 2 as ungranted.
 	return status.GrantStatus == 1
 }

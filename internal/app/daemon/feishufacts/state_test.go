@@ -116,3 +116,27 @@ func TestGetReturnsDeepCopyOfScopes(t *testing.T) {
 		t.Fatal("Get returned a mutable scope slice")
 	}
 }
+
+func TestStorePersistsScopesSourceOnlyChange(t *testing.T) {
+	path := StatePath(t.TempDir())
+	store := NewStore(path)
+	record := Record{GatewayID: "main", AppID: "cli_test"}
+	if err := store.Put(record); err != nil {
+		t.Fatal(err)
+	}
+	record.ScopesSource = " granted "
+	if err := store.Put(record); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := LoadStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := reloaded.Get("main")
+	if !ok {
+		t.Fatal("missing reloaded record")
+	}
+	if got.ScopesSource != ScopesSourceGranted {
+		t.Fatalf("source-only update was not normalized and persisted: %#v", got)
+	}
+}

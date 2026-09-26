@@ -13,21 +13,23 @@ import (
 	"github.com/kxn/codex-remote-feishu/internal/feishuapp"
 )
 
-var listFeishuAppConfiguredScopes = feishu.ListAppConfiguredScopes
+var listFeishuAppGrantedScopes = feishu.ListAppGrantedScopes
 
 type feishuPermissionGapRecord struct {
-	Scope           string
-	ScopeType       string
-	ApplyURL        string
-	LastErrorCode   int
-	LastErrorMsg    string
-	FirstSeenAt     time.Time
-	LastSeenAt      time.Time
-	HitCount        int
-	LastSourceAPI   string
-	LastRequestID   string
-	LastVerifiedAt  time.Time
-	LastVerifyError string
+	Scope                 string
+	Scopes                []string
+	UnresolvedPermissions []string
+	ScopeType             string
+	ApplyURL              string
+	LastErrorCode         int
+	LastErrorMsg          string
+	FirstSeenAt           time.Time
+	LastSeenAt            time.Time
+	HitCount              int
+	LastSourceAPI         string
+	LastRequestID         string
+	LastVerifiedAt        time.Time
+	LastVerifyError       string
 }
 
 func (a *App) observeFeishuPermissionError(gatewayID string, err error) bool {
@@ -40,7 +42,7 @@ func (a *App) observeFeishuPermissionError(gatewayID string, err error) bool {
 		return false
 	}
 	now := time.Now().UTC()
-	key := feishuPermissionGapKey(gap.Scope, gap.ScopeType)
+	key := feishuPermissionGapKey(gap.Scope, gap.ScopeType) + "|" + gap.SourceAPI + "|" + strings.Join(gap.Scopes, ",") + "|" + strings.Join(gap.UnresolvedPermissions, "\n")
 	a.feishuRuntime.permissionMu.Lock()
 	defer a.feishuRuntime.permissionMu.Unlock()
 	if a.feishuRuntime.permissionGaps[gatewayID] == nil {
@@ -49,10 +51,12 @@ func (a *App) observeFeishuPermissionError(gatewayID string, err error) bool {
 	record := a.feishuRuntime.permissionGaps[gatewayID][key]
 	if record == nil {
 		record = &feishuPermissionGapRecord{
-			Scope:       strings.TrimSpace(gap.Scope),
-			ScopeType:   strings.TrimSpace(gap.ScopeType),
-			ApplyURL:    strings.TrimSpace(gap.ApplyURL),
-			FirstSeenAt: now,
+			Scope:                 strings.TrimSpace(gap.Scope),
+			UnresolvedPermissions: append([]string(nil), gap.UnresolvedPermissions...),
+			Scopes:                append([]string(nil), gap.Scopes...),
+			ScopeType:             strings.TrimSpace(gap.ScopeType),
+			ApplyURL:              strings.TrimSpace(gap.ApplyURL),
+			FirstSeenAt:           now,
 		}
 		a.feishuRuntime.permissionGaps[gatewayID][key] = record
 	}
@@ -89,15 +93,17 @@ func (a *App) snapshotFeishuPermissionGaps(gatewayID string) []control.Permissio
 			continue
 		}
 		values = append(values, control.PermissionGapSummary{
-			Scope:        record.Scope,
-			ScopeType:    record.ScopeType,
-			ApplyURL:     record.ApplyURL,
-			SourceAPI:    record.LastSourceAPI,
-			ErrorCode:    record.LastErrorCode,
-			FirstSeenAt:  record.FirstSeenAt,
-			LastSeenAt:   record.LastSeenAt,
-			LastVerified: record.LastVerifiedAt,
-			HitCount:     record.HitCount,
+			Scope:                 record.Scope,
+			UnresolvedPermissions: append([]string(nil), record.UnresolvedPermissions...),
+			Scopes:                append([]string(nil), record.Scopes...),
+			ScopeType:             record.ScopeType,
+			ApplyURL:              record.ApplyURL,
+			SourceAPI:             record.LastSourceAPI,
+			ErrorCode:             record.LastErrorCode,
+			FirstSeenAt:           record.FirstSeenAt,
+			LastSeenAt:            record.LastSeenAt,
+			LastVerified:          record.LastVerifiedAt,
+			HitCount:              record.HitCount,
 		})
 	}
 	sort.Slice(values, func(i, j int) bool {
@@ -133,19 +139,9 @@ func (a *App) applyFeishuPermissionVerificationResult(gatewayID string, scopes [
 		return
 	}
 	now := time.Now().UTC()
-	granted := map[string]bool{}
-	for _, item := range scopes {
-		if feishuScopeStatusGranted(item) {
-			granted[feishuPermissionGapKey(item.ScopeName, item.ScopeType)] = true
-			granted[feishuPermissionGapKey(item.ScopeName, "")] = true
-		}
-	}
 	a.feishuRuntime.permissionMu.Lock()
 	defer a.feishuRuntime.permissionMu.Unlock()
 	records := a.feishuRuntime.permissionGaps[gatewayID]
-	if len(records) == 0 {
-		return
-	}
 	for key, record := range records {
 		if record == nil {
 			delete(records, key)
@@ -157,7 +153,7 @@ func (a *App) applyFeishuPermissionVerificationResult(gatewayID string, scopes [
 			record.LastVerifyError = err.Error()
 			continue
 		}
-		if granted[feishuPermissionGapKey(record.Scope, record.ScopeType)] || granted[feishuPermissionGapKey(record.Scope, "")] {
+		if feishu.PermissionGapSatisfied(feishu.PermissionGapEvidence{Scope: record.Scope, Scopes: record.Scopes, ScopeType: record.ScopeType, UnresolvedPermissions: record.UnresolvedPermissions}, scopes) {
 			delete(records, key)
 		}
 	}
@@ -171,16 +167,6 @@ func (a *App) applyFeishuPermissionVerificationResult(gatewayID string, scopes [
 	if clearer, ok := a.gateway.(feishu.PermissionBlockController); ok {
 		clearer.ClearGrantedPermissionBlocks(gatewayID, scopes)
 	}
-}
-
-func feishuScopeStatusGranted(status feishu.AppScopeStatus) bool {
-	status.ScopeName = strings.TrimSpace(status.ScopeName)
-	if status.ScopeName == "" {
-		return false
-	}
-	// The upstream SDK exposes grant_status without an inline enum table.
-	// Keep the auto-clear condition intentionally narrow.
-	return status.GrantStatus == 1
 }
 
 func (a *App) CheckPrimaryBotPermission(ctx context.Context, req orchestrator.PrimaryBotPermissionRequest) orchestrator.PrimaryBotPermissionDecision {
@@ -209,13 +195,13 @@ func (a *App) checkFeishuScopePermission(ctx context.Context, gatewayID, feature
 	if gatewayID == "" {
 		return orchestrator.PrimaryBotPermissionDecision{Allowed: false, Reason: "missing_gateway"}
 	}
-	requirement, ok := feishuScopeRequirementByFeature(feature)
-	if !ok {
+	requirements := feishuScopeRequirementsByFeature(feature)
+	if len(requirements) == 0 {
 		return orchestrator.PrimaryBotPermissionDecision{Allowed: false, Reason: "scope_requirement_missing"}
 	}
 	if !forceRefresh {
 		if facts, ok := a.FeishuBotFacts(gatewayID); ok && feishuFactsScopesFresh(facts, time.Now().UTC()) {
-			return feishuScopePermissionDecisionFromScopes(requirement, appScopesFromFeishuFactsScopes(facts.Scopes), nil)
+			return feishuScopePermissionDecisionFromScopes(requirements, appScopesFromFeishuFactsScopes(facts.Scopes), nil)
 		}
 	}
 	checkCtx := ctx
@@ -225,7 +211,7 @@ func (a *App) checkFeishuScopePermission(ctx context.Context, gatewayID, feature
 	checkCtx, cancel := context.WithTimeout(checkCtx, 20*time.Second)
 	defer cancel()
 	facts, err := a.RefreshFeishuBotFacts(checkCtx, gatewayID)
-	return feishuScopePermissionDecisionFromScopes(requirement, appScopesFromFeishuFactsScopes(facts.Scopes), err)
+	return feishuScopePermissionDecisionFromScopes(requirements, appScopesFromFeishuFactsScopes(facts.Scopes), err)
 }
 
 func primaryPermissionDecisionFromScopes(scopes []feishu.AppScopeStatus, err error) orchestrator.PrimaryBotPermissionDecision {
@@ -242,26 +228,41 @@ func primaryPermissionDecisionFromScopes(scopes []feishu.AppScopeStatus, err err
 	return orchestrator.PrimaryBotPermissionDecision{Allowed: false, Reason: "missing_group_message_scope"}
 }
 
-func feishuScopePermissionDecisionFromScopes(requirement feishuapp.ScopeRequirement, scopes []feishu.AppScopeStatus, err error) orchestrator.PrimaryBotPermissionDecision {
+func feishuScopePermissionDecisionFromScopes(requirements []feishuapp.ScopeRequirement, scopes []feishu.AppScopeStatus, err error) orchestrator.PrimaryBotPermissionDecision {
 	if err != nil {
 		return orchestrator.PrimaryBotPermissionDecision{Allowed: false, Reason: "scope_read_failed", Err: err}
 	}
-	if scope, ok := feishu.MatchScopeRequirement(requirement.Scope, requirement.ScopeType, scopes); ok {
-		return orchestrator.PrimaryBotPermissionDecision{Allowed: true, Scope: scope}
+	if len(requirements) == 0 {
+		return orchestrator.PrimaryBotPermissionDecision{Allowed: false, Reason: "scope_requirement_missing"}
 	}
-	return orchestrator.PrimaryBotPermissionDecision{Allowed: false, Reason: "missing_scope"}
+	var firstScope string
+	for _, requirement := range requirements {
+		scope, ok := feishu.MatchScopeRequirement(requirement.Scope, requirement.ScopeType, scopes)
+		if !ok {
+			return orchestrator.PrimaryBotPermissionDecision{Allowed: false, Reason: "missing_scope"}
+		}
+		if firstScope == "" {
+			firstScope = scope
+		}
+	}
+	return orchestrator.PrimaryBotPermissionDecision{Allowed: true, Scope: firstScope}
 }
 
 func primaryPermissionScopeRequirement() (feishuapp.ScopeRequirement, bool) {
-	return feishuScopeRequirementByFeature("primary_room_bot")
+	requirements := feishuScopeRequirementsByFeature("primary_room_bot")
+	if len(requirements) == 0 {
+		return feishuapp.ScopeRequirement{}, false
+	}
+	return requirements[0], true
 }
 
-func feishuScopeRequirementByFeature(feature string) (feishuapp.ScopeRequirement, bool) {
+func feishuScopeRequirementsByFeature(feature string) []feishuapp.ScopeRequirement {
 	feature = strings.TrimSpace(feature)
+	var requirements []feishuapp.ScopeRequirement
 	for _, requirement := range feishuapp.DefaultManifest().ScopeRequirements {
 		if requirement.Required && strings.TrimSpace(requirement.Feature) == feature {
-			return requirement, true
+			requirements = append(requirements, requirement)
 		}
 	}
-	return feishuapp.ScopeRequirement{}, false
+	return requirements
 }

@@ -513,6 +513,21 @@ func formatSnapshotPermissionGapsPlain(gaps []control.PermissionGapSummary) []st
 			continue
 		}
 		line := scope
+		if len(gap.Scopes) > 1 {
+			line = "任选一项：" + strings.Join(gap.Scopes, " / ")
+		}
+		if len(gap.UnresolvedPermissions) != 0 {
+			line = "多条权限要求的组合关系未明确，需重试验证：" + strings.Join(gap.UnresolvedPermissions, "；")
+		} else {
+			switch gap.ScopeType {
+			case "tenant":
+				line += " · 应用身份"
+			case "user":
+				line += " · 用户身份"
+			default:
+				line += " · 身份待确认，授权后需重试验证"
+			}
+		}
 		if source := strings.TrimSpace(gap.SourceAPI); source != "" {
 			line += " · 来源 " + source
 		}

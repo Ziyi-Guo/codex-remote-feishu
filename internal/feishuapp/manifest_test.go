@@ -108,7 +108,11 @@ func TestDeployTemplateStaysInSyncWithManifest(t *testing.T) {
 
 func TestDefaultManifestRequirementsMetadata(t *testing.T) {
 	manifest := DefaultManifest()
-	if len(manifest.ScopeRequirements) != len(manifest.Scopes.Scopes.Tenant)+len(manifest.Scopes.Scopes.User) {
+	unique := make(map[string]bool)
+	for _, r := range manifest.ScopeRequirements {
+		unique[r.ScopeType+":"+r.Scope] = true
+	}
+	if len(unique) != len(manifest.Scopes.Scopes.Tenant)+len(manifest.Scopes.Scopes.User) {
 		t.Fatalf("scope requirements count = %d, want %d", len(manifest.ScopeRequirements), len(manifest.Scopes.Scopes.Tenant)+len(manifest.Scopes.Scopes.User))
 	}
 
@@ -154,21 +158,21 @@ func TestDefaultManifestIncludesChatInfoScopeForPrimaryBootstrap(t *testing.T) {
 	manifest := DefaultManifest()
 	foundScope := false
 	for _, scope := range manifest.Scopes.Scopes.Tenant {
-		if strings.TrimSpace(scope) == "im:chat:readonly" {
+		if strings.TrimSpace(scope) == "im:chat:read" {
 			foundScope = true
 		}
 	}
 	if !foundScope {
-		t.Fatal("default manifest must require im:chat:readonly for primary bootstrap")
+		t.Fatal("default manifest must require im:chat:read for primary bootstrap")
 	}
 	foundRequirement := false
 	for _, item := range manifest.ScopeRequirements {
-		if strings.TrimSpace(item.Scope) == "im:chat:readonly" && item.ScopeType == "tenant" && item.Feature == "primary_room_auto_bootstrap" && item.Required {
+		if strings.TrimSpace(item.Scope) == "im:chat:read" && item.ScopeType == "tenant" && item.Feature == "primary_room_auto_bootstrap" && item.Required {
 			foundRequirement = true
 		}
 	}
 	if !foundRequirement {
-		t.Fatal("default manifest must describe required im:chat:readonly primary bootstrap scope")
+		t.Fatal("default manifest must describe required im:chat:read primary bootstrap scope")
 	}
 }
 
@@ -222,5 +226,33 @@ func TestDefaultFixedPolicy(t *testing.T) {
 	}
 	if !policy.PreserveExistingEncryptKV {
 		t.Fatal("expected preserve-existing encryption strategy in stage 1")
+	}
+}
+
+func TestManifestUsesOperationScopedPreviewAndCronPermissions(t *testing.T) {
+	want := map[string][]string{
+		"markdown_preview": {"space:document:retrieve", "space:folder:create", "drive:file:upload", "space:document:delete", "drive:drive.metadata:readonly", "docs:permission.member:create", "docs:permission.member:retrieve"},
+		"cron_bitable":     {"base:app:create", "base:app:read", "base:table:read", "base:table:create", "base:table:update", "base:field:read", "base:field:create", "base:field:update", "base:record:retrieve", "base:record:create", "base:record:update", "docs:permission.member:create", "docs:permission.member:retrieve", "docs:permission.member:update"},
+	}
+	manifest := DefaultManifest()
+	for feature, scopes := range want {
+		var got []string
+		for _, r := range manifest.ScopeRequirements {
+			if r.Feature != feature {
+				continue
+			}
+			if r.ScopeType != "tenant" || !r.Required {
+				t.Fatalf("invalid operation requirement: %#v", r)
+			}
+			got = append(got, r.Scope)
+		}
+		if !reflect.DeepEqual(got, scopes) {
+			t.Fatalf("%s scopes = %v, want %v", feature, got, scopes)
+		}
+	}
+	for _, scope := range manifest.Scopes.Scopes.Tenant {
+		if scope == "drive:drive" || scope == "bitable:app" {
+			t.Fatalf("new setup must request operation scopes, got umbrella %s", scope)
+		}
 	}
 }

@@ -116,6 +116,12 @@ func (e *PermissionBlockedError) Error() string {
 		api = "unknown"
 	}
 	scope := strings.TrimSpace(e.gap.Scope)
+	if len(e.gap.Scopes) > 1 {
+		scope = "any of [" + strings.Join(e.gap.Scopes, ", ") + "]"
+	}
+	if len(e.gap.UnresolvedPermissions) != 0 {
+		scope = "unresolved requirements [" + strings.Join(e.gap.UnresolvedPermissions, "; ") + "]"
+	}
 	if scope == "" {
 		scope = "unknown"
 	}
@@ -147,7 +153,6 @@ type FeishuCallBroker struct {
 	classBuckets     map[CallClass]*callBucketState
 	resourceBuckets  map[string]*callBucketState
 	permissionBlocks map[string]*permissionBlockState
-	apiPermissions   map[string]string
 }
 
 func NewFeishuCallBroker(gatewayID string, sdkClient *lark.Client) *FeishuCallBroker {
@@ -159,7 +164,6 @@ func NewFeishuCallBroker(gatewayID string, sdkClient *lark.Client) *FeishuCallBr
 		classBuckets:     map[CallClass]*callBucketState{},
 		resourceBuckets:  map[string]*callBucketState{},
 		permissionBlocks: map[string]*permissionBlockState{},
-		apiPermissions:   map[string]string{},
 	}
 }
 
@@ -254,13 +258,9 @@ func (b *FeishuCallBroker) currentPermissionBlock(spec CallSpec) (*PermissionBlo
 	if api == "" {
 		return nil, 0
 	}
-	permissionKey := strings.TrimSpace(b.apiPermissions[api])
-	if permissionKey == "" {
-		return nil, 0
-	}
+	permissionKey := api + "|" + spec.ResourceKey.bucketKey()
 	block := b.permissionBlocks[permissionKey]
 	if block == nil {
-		delete(b.apiPermissions, api)
 		return nil, 0
 	}
 	if !block.blockedUntil.IsZero() && !now.Before(block.blockedUntil) {
@@ -276,12 +276,11 @@ func (b *FeishuCallBroker) currentPermissionBlock(spec CallSpec) (*PermissionBlo
 }
 
 func (b *FeishuCallBroker) markPermissionBlocked(spec CallSpec, gap PermissionGapEvidence) {
-	key := permissionBlockKey(gap.Scope, gap.ScopeType)
-	if key == "" {
+	key := strings.TrimSpace(spec.API) + "|" + spec.ResourceKey.bucketKey()
+	if strings.TrimSpace(gap.Scope) == "" {
 		return
 	}
 	now := b.now()
-	api := strings.TrimSpace(spec.API)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	block := b.permissionBlocks[key]
@@ -291,32 +290,15 @@ func (b *FeishuCallBroker) markPermissionBlocked(spec CallSpec, gap PermissionGa
 	}
 	block.gap = gap
 	block.blockedUntil = now.Add(callBrokerPermissionBlockTTL)
-	if api != "" {
-		b.apiPermissions[api] = key
-	}
 }
 
 func (b *FeishuCallBroker) ClearGrantedPermissionBlocks(scopes []AppScopeStatus) {
-	granted := map[string]bool{}
-	for _, item := range scopes {
-		if !scopeGranted(item) {
-			continue
-		}
-		key := permissionBlockKey(item.ScopeName, item.ScopeType)
-		if key != "" {
-			granted[key] = true
-		}
-		if fallback := permissionBlockKey(item.ScopeName, ""); fallback != "" {
-			granted[fallback] = true
-		}
-	}
-	if len(granted) == 0 {
-		return
-	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for key := range granted {
-		b.dropPermissionKeyLocked(key)
+	for key, block := range b.permissionBlocks {
+		if PermissionGapSatisfied(block.gap, scopes) {
+			b.dropPermissionKeyLocked(key)
+		}
 	}
 }
 
@@ -399,11 +381,6 @@ func (b *FeishuCallBroker) resourceBucketLocked(key string) *callBucketState {
 
 func (b *FeishuCallBroker) dropPermissionKeyLocked(permissionKey string) {
 	delete(b.permissionBlocks, permissionKey)
-	for api, key := range b.apiPermissions {
-		if key == permissionKey {
-			delete(b.apiPermissions, api)
-		}
-	}
 }
 
 func appIntervalForSpec(_ CallSpec) time.Duration {
@@ -459,15 +436,6 @@ func (p RetryPolicy) allowsRateLimitRetry(attempt int) bool {
 	default:
 		return false
 	}
-}
-
-func permissionBlockKey(scope, scopeType string) string {
-	scope = strings.TrimSpace(scope)
-	scopeType = strings.TrimSpace(scopeType)
-	if scope == "" {
-		return ""
-	}
-	return scope + "|" + scopeType
 }
 
 func applyBucketCooldown(bucket *callBucketState, until time.Time) {

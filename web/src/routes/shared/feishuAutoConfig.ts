@@ -48,10 +48,12 @@ export function buildMissingScopesImportJSON(
   const seen = new Set<string>();
   for (const item of missing) {
     const scope = item.scope?.trim();
-    if (!scope || seen.has(scope)) {
+    const identity = item.scopeType === "user" ? "user" : "tenant";
+    const key = `${identity}:${scope}`;
+    if (!scope || seen.has(key)) {
       continue;
     }
-    seen.add(scope);
+    seen.add(key);
     if (item.scopeType === "user") {
       user.push(scope);
     } else {
@@ -87,7 +89,7 @@ export function describeAutoConfigBlockingReason(reason: string): string {
     case "credential_invalid":
       return "当前飞书应用凭证已经失效，请重新连接飞书机器人。";
     case "permission_denied":
-      return "当前账号没有修改飞书应用配置的权限，请使用有权限的管理员账号处理。";
+      return "当前应用缺少读取飞书配置所需的权限，请在飞书开发者后台检查并开通。";
     default:
       return "飞书返回的状态暂时无法处理，请稍后重新检查或到飞书后台处理。";
   }

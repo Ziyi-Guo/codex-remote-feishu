@@ -144,3 +144,22 @@ func TestFeishuCallBrokerPermissionBlockShortCircuitsUntilCleared(t *testing.T) 
 		t.Fatalf("expected cleared call to hit backend again, got %d attempts", attempts)
 	}
 }
+
+func TestBrokerPermissionBlocksKeepAPIAndResourceRequirementsSeparate(t *testing.T) {
+	broker := NewFeishuCallBroker("app-1", nil)
+	read := CallSpec{API: "drive.v1.file.list", ResourceKey: FeishuResourceKey{DocToken: "read"}}
+	write := CallSpec{API: "drive.v1.file.upload_all", ResourceKey: FeishuResourceKey{DocToken: "write"}}
+	otherRead := CallSpec{API: read.API, ResourceKey: write.ResourceKey}
+	broker.markPermissionBlocked(read, PermissionGapEvidence{Scope: "drive:drive", Scopes: []string{"drive:drive", "drive:drive:readonly"}, ScopeType: "tenant"})
+	broker.markPermissionBlocked(write, PermissionGapEvidence{Scope: "drive:drive", ScopeType: "tenant"})
+	if blocked, _ := broker.currentPermissionBlock(otherRead); blocked != nil {
+		t.Fatal("resource block leaked")
+	}
+	broker.ClearGrantedPermissionBlocks([]AppScopeStatus{{ScopeName: "drive:drive:readonly", ScopeType: "tenant", GrantStatus: 1}})
+	if blocked, _ := broker.currentPermissionBlock(read); blocked != nil {
+		t.Fatal("read block not cleared")
+	}
+	if blocked, _ := broker.currentPermissionBlock(write); blocked == nil {
+		t.Fatal("read grant cleared write block")
+	}
+}

@@ -185,14 +185,14 @@ func TestPlanAppAutoConfigDefaultManifestReportsPrimaryBootstrapRequirements(t *
 	if err != nil {
 		t.Fatalf("PlanAppAutoConfig: %v", err)
 	}
-	if !containsScopeRef(plan.Diff.MissingScopes, "im:chat:readonly", "tenant") {
-		t.Fatalf("missing scopes = %#v, want im:chat:readonly tenant", plan.Diff.MissingScopes)
+	if !containsScopeRef(plan.Diff.MissingScopes, "im:chat:read", "tenant") {
+		t.Fatalf("missing scopes = %#v, want im:chat:read tenant", plan.Diff.MissingScopes)
 	}
 	if !reflect.DeepEqual(plan.Diff.MissingEvents, []string{"im.chat.member.bot.added_v1"}) {
 		t.Fatalf("missing events = %#v, want bot added event", plan.Diff.MissingEvents)
 	}
-	if !hasRequirement(plan.BlockingRequirements, AutoConfigRequirementKindScope, "im:chat:readonly") {
-		t.Fatalf("blocking requirements = %#v, want im:chat:readonly", plan.BlockingRequirements)
+	if !hasRequirement(plan.BlockingRequirements, AutoConfigRequirementKindScope, "im:chat:read") {
+		t.Fatalf("blocking requirements = %#v, want im:chat:read", plan.BlockingRequirements)
 	}
 	if !hasRequirement(plan.BlockingRequirements, AutoConfigRequirementKindEvent, "im.chat.member.bot.added_v1") {
 		t.Fatalf("blocking requirements = %#v, want bot added event", plan.BlockingRequirements)
@@ -621,7 +621,7 @@ func TestNarrowedManifestScopeSatisfiersHonorAlternatives(t *testing.T) {
 	}{
 		{requirement: "im:message:readonly", configured: "im:message"},
 		{requirement: "im:resource:upload", configured: "im:resource"},
-		{requirement: "application:application:self_manage", configured: "admin:app.info:readonly"},
+		{requirement: "im:chat:read", configured: "im:chat:readonly"},
 		{requirement: "im:message.group_at_msg.include_bot:readonly", configured: "im:message.group_at_msg.include_bot"},
 		{requirement: "im:message.group_msg", configured: "im:message.group_msg:readonly"},
 	}
@@ -1004,4 +1004,12 @@ func strp(value string) *string {
 
 func intp(value int) *int {
 	return &value
+}
+
+func TestApplicationReadScopeDoesNotSatisfySetupManagement(t *testing.T) {
+	req := AutoConfigScopeRef{Scope: "application:application:self_manage", ScopeType: "tenant"}
+	configured := map[string]bool{scopeKey("admin:app.info:readonly", "tenant"): true}
+	if scopeRequirementSatisfied(req, configured) {
+		t.Fatal("application.get read permission does not cover version/configuration requirements")
+	}
 }

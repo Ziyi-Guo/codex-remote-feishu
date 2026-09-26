@@ -5,7 +5,9 @@ import (
 	"fmt"
 	previewpkg "github.com/kxn/codex-remote-feishu/internal/adapter/feishu/preview"
 	"net/http"
+	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -61,13 +63,17 @@ func (e *APIError) Error() string {
 }
 
 type PermissionGapEvidence struct {
-	Scope        string
-	ScopeType    string
-	ApplyURL     string
-	ErrorCode    int
-	ErrorMessage string
-	SourceAPI    string
-	RequestID    string
+	Scope string
+	// Scopes is an explicit any-of group; Scope remains its first member for older consumers.
+	Scopes []string
+	// UnresolvedPermissions preserves independent violations without inventing OR semantics.
+	UnresolvedPermissions []string
+	ScopeType             string
+	ApplyURL              string
+	ErrorCode             int
+	ErrorMessage          string
+	SourceAPI             string
+	RequestID             string
 }
 
 type RateLimitEvidence struct {
@@ -180,16 +186,32 @@ func permissionGapFromAPIError(err *APIError) (PermissionGapEvidence, bool) {
 		SourceAPI:    strings.TrimSpace(err.API),
 		RequestID:    xutil.FirstNonEmpty(strings.TrimSpace(err.RequestID), strings.TrimSpace(err.LogID)),
 	}
+	gap.Scopes = permissionAlternatives(err.Msg)
+	if len(gap.Scopes) != 0 {
+		gap.Scope = gap.Scopes[0]
+	}
+	if match := permissionMissingScopePattern.FindStringSubmatch(err.Msg); len(match) != 0 {
+		gap.Scope = match[1]
+	}
 	for _, item := range err.PermissionViolations {
+		if len(gap.Scopes) == 0 {
+			if alternatives := permissionAlternatives(item.Description); len(alternatives) != 0 {
+				gap.Scopes = alternatives
+				gap.Scope = alternatives[0]
+				gap.ScopeType = normalizePermissionScopeType(item.Type)
+			}
+		}
 		if scope := normalizePermissionScope(item.Subject); scope != "" {
-			gap.Scope = scope
-			gap.ScopeType = normalizePermissionScopeType(item.Type)
-			break
+			if gap.Scope == "" {
+				gap.Scope = scope
+			}
+			if gap.Scope == scope && gap.ScopeType == "" {
+				gap.ScopeType = normalizePermissionScopeType(item.Type)
+			}
 		}
 	}
 	for _, item := range err.Details {
-		key := strings.ToLower(strings.TrimSpace(item.Key))
-		switch key {
+		switch strings.ToLower(strings.TrimSpace(item.Key)) {
 		case "scope", "scope_name", "permission", "permission_scope":
 			if gap.Scope == "" {
 				gap.Scope = normalizePermissionScope(item.Value)
@@ -200,51 +222,137 @@ func permissionGapFromAPIError(err *APIError) (PermissionGapEvidence, bool) {
 			}
 		}
 	}
-	if gap.Scope == "" {
-		gap.Scope = firstPermissionScopeInText(
-			err.Msg,
-			permissionViolationDescriptions(err.PermissionViolations),
-			detailValues(err.Details),
-		)
-	}
 	gap.ApplyURL = firstPermissionURL(err)
+	if gap.ScopeType == "" {
+		if parsed, parseErr := url.Parse(gap.ApplyURL); parseErr == nil {
+			gap.ScopeType = normalizePermissionScopeType(parsed.Query().Get("token_type"))
+		}
+	}
 	if gap.Scope == "" {
 		return PermissionGapEvidence{}, false
 	}
+	gap.UnresolvedPermissions = unresolvedPermissionViolations(gap, err.PermissionViolations)
 	return gap, true
+}
+
+// Multiple structured violations are independent unless one explicit same-identity
+// any-of group covers every subject and every stated alternative.
+// ponytail: unresolved combinations stay blocked; add AND groups only with an upstream contract.
+func unresolvedPermissionViolations(gap PermissionGapEvidence, violations []APIErrorPermissionViolation) []string {
+	if len(violations) == 0 || (len(violations) == 1 && len(gap.Scopes) == 0) {
+		return nil
+	}
+	covered := len(gap.Scopes) > 0 && gap.ScopeType != ""
+	var evidence []string
+	if len(gap.Scopes) != 0 {
+		evidence = append(evidence, gap.ScopeType+": any of ["+strings.Join(gap.Scopes, ", ")+"]")
+	}
+	requestIdentity := ""
+	if parsed, err := url.Parse(gap.ApplyURL); err == nil {
+		requestIdentity = normalizePermissionScopeType(parsed.Query().Get("token_type"))
+	}
+	for _, item := range violations {
+		identity := normalizePermissionScopeType(item.Type)
+		if identity == "" {
+			identity = requestIdentity
+		}
+		if identity != gap.ScopeType || !slices.Contains(gap.Scopes, normalizePermissionScope(item.Subject)) {
+			covered = false
+		}
+		for _, scope := range permissionAlternatives(item.Description) {
+			if !slices.Contains(gap.Scopes, scope) {
+				covered = false
+			}
+		}
+		description := strings.TrimSpace(item.Type) + ": " + strings.TrimSpace(item.Subject)
+		if detail := strings.TrimSpace(item.Description); detail != "" {
+			description += " (" + detail + ")"
+		}
+		evidence = append(evidence, description)
+	}
+	if covered {
+		return nil
+	}
+	return evidence
 }
 
 func permissionGapFromDriveAPIError(err *previewpkg.DriveAPIError) (PermissionGapEvidence, bool) {
 	if err == nil {
 		return PermissionGapEvidence{}, false
 	}
-	if !previewpkg.IsDriveAccessDeniedError(err) {
-		return PermissionGapEvidence{}, false
+	return permissionGapFromAPIError(&APIError{
+		API:  xutil.FirstNonEmpty(strings.TrimSpace(err.API), "drive.v1"),
+		Code: err.Code, Msg: err.Msg, RequestID: err.RequestID, LogID: err.LogID,
+	})
+}
+
+var permissionMissingScopePattern = regexp.MustCompile(`(?i)^\s*missing\s+([a-z][a-z0-9_.-]*(?::[a-z0-9_.-]+)+)\s*$`)
+
+var permissionAnyOfPattern = regexp.MustCompile(`(?i)(?:one of the following scopes is required\s*[:：]\s*\[([^\]]+)\]|所需的(?:应用|用户)身份权限[：:]\s*\[([^\]]+)\][^。\n]*?(?:任一权限))`)
+var permissionURLPattern = regexp.MustCompile(`https://open\.(?:feishu\.cn|larksuite\.com)/[^\s<>"，。]+`)
+
+func permissionAlternatives(value string) []string {
+	match := permissionAnyOfPattern.FindStringSubmatch(value)
+	if len(match) == 0 {
+		return nil
 	}
-	return PermissionGapEvidence{
-		Scope:        "drive:drive",
-		ScopeType:    "tenant",
-		ApplyURL:     "",
-		ErrorCode:    err.Code,
-		ErrorMessage: strings.TrimSpace(err.Msg),
-		SourceAPI:    xutil.FirstNonEmpty(strings.TrimSpace(err.API), "drive.v1"),
-		RequestID:    xutil.FirstNonEmpty(strings.TrimSpace(err.RequestID), strings.TrimSpace(err.LogID)),
-	}, true
+	group := xutil.FirstNonEmpty(match[1], match[2])
+	var scopes []string
+	for _, value := range strings.Split(group, ",") {
+		scope := normalizePermissionScope(value)
+		if scope == "" {
+			return nil
+		}
+		scopes = append(scopes, scope)
+	}
+	return scopes
 }
 
 func firstPermissionURL(err *APIError) string {
 	if err == nil {
 		return ""
 	}
+	var links []string
 	for _, item := range err.Helps {
-		if strings.TrimSpace(item.URL) != "" {
-			return strings.TrimSpace(item.URL)
+		if link := strings.TrimSpace(item.URL); link != "" {
+			links = append(links, link)
 		}
 	}
-	if strings.TrimSpace(err.Troubleshooter) != "" {
-		return strings.TrimSpace(err.Troubleshooter)
+	links = append(links, permissionURLPattern.FindAllString(err.Msg, -1)...)
+	if link := strings.TrimSpace(err.Troubleshooter); link != "" {
+		links = append(links, link)
+	}
+	for _, link := range links {
+		if parsed, parseErr := url.Parse(link); parseErr == nil && normalizePermissionScopeType(parsed.Query().Get("token_type")) != "" {
+			return link
+		}
+	}
+	if len(links) != 0 {
+		return links[0]
 	}
 	return ""
+}
+
+// PermissionGapSatisfied only clears a gap with known identity and an actually
+// granted scope satisfying the captured API requirement (including explicit OR).
+func PermissionGapSatisfied(gap PermissionGapEvidence, grants []AppScopeStatus) bool {
+	if len(gap.UnresolvedPermissions) != 0 {
+		return false
+	}
+	identity := normalizePermissionScopeType(gap.ScopeType)
+	if identity != "tenant" && identity != "user" {
+		return false
+	}
+	candidates := gap.Scopes
+	if len(candidates) == 0 {
+		candidates = []string{gap.Scope}
+	}
+	for _, scope := range candidates {
+		if _, ok := MatchScopeRequirement(scope, identity, grants); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizePermissionScope(value string) string {
@@ -252,8 +360,8 @@ func normalizePermissionScope(value string) string {
 	if value == "" {
 		return ""
 	}
-	if permissionScopePattern.MatchString(value) {
-		return permissionScopePattern.FindString(value)
+	if permissionScopePattern.FindString(value) == value {
+		return value
 	}
 	return ""
 }
@@ -266,37 +374,8 @@ func normalizePermissionScopeType(value string) string {
 	case "user", "user_access_token":
 		return "user"
 	default:
-		return value
+		return ""
 	}
-}
-
-func firstPermissionScopeInText(values ...string) string {
-	for _, value := range values {
-		if scope := normalizePermissionScope(value); scope != "" {
-			return scope
-		}
-	}
-	return ""
-}
-
-func permissionViolationDescriptions(values []APIErrorPermissionViolation) string {
-	parts := make([]string, 0, len(values))
-	for _, item := range values {
-		if strings.TrimSpace(item.Description) != "" {
-			parts = append(parts, strings.TrimSpace(item.Description))
-		}
-	}
-	return strings.Join(parts, "\n")
-}
-
-func detailValues(values []APIErrorDetail) string {
-	parts := make([]string, 0, len(values))
-	for _, item := range values {
-		if strings.TrimSpace(item.Value) != "" {
-			parts = append(parts, strings.TrimSpace(item.Value))
-		}
-	}
-	return strings.Join(parts, "\n")
 }
 
 func parseRetryAfterHeader(header http.Header) time.Duration {
