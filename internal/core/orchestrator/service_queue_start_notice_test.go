@@ -69,9 +69,12 @@ func TestQueuedUserMessageRepliesWhenDispatchStartsAfterWaiting(t *testing.T) {
 	if command := findPromptSendCommand(finished); command == nil || command.Origin.MessageID != "msg-2" {
 		t.Fatalf("expected second prompt command to dispatch after notice, got %#v", finished)
 	}
+	assertModelNotice(t, finished, "")
+	startedSecond := svc.ApplyAgentEvent("inst-1", agentproto.Event{Kind: agentproto.EventTurnStarted, ThreadID: "thread-1", TurnID: "turn-2", Model: "gpt-6-sol", ReasoningEffort: "high"})
+	assertModelNotice(t, startedSecond, "本次回复模型：gpt-6-sol / high。")
 }
 
-func TestQueuedMessageStartedShowsPresetAfterDelayedDispatch(t *testing.T) {
+func TestQueuedMessageStartedDoesNotClaimRequestedModelAfterDelayedDispatch(t *testing.T) {
 	now := time.Date(2026, 8, 26, 10, 10, 0, 0, time.UTC)
 	svc := newReplyAutoSteerServiceFixture(&now)
 	surface := svc.root.Surfaces["surface-1"]
@@ -95,12 +98,12 @@ func TestQueuedMessageStartedShowsPresetAfterDelayedDispatch(t *testing.T) {
 
 	finished := completeRemoteTurnWithFinalText(t, svc, "turn-1", "completed", "", "", nil)
 	notice := findQueuedStartNotice(finished)
-	if notice == nil || notice.TimelineText.Text != "开始执行这条排队消息。请求模型：gpt-5.6-terra / high（话题设置）。" {
+	if notice == nil || notice.TimelineText.Text != "开始执行这条排队消息。" {
 		t.Fatalf("delayed preset start notice = %#v", notice)
 	}
 }
 
-func TestQueuedMessageStartedShowsPresetOnImmediateDispatch(t *testing.T) {
+func TestPresetImmediateDispatchWaitsForRuntimeModelNotice(t *testing.T) {
 	now := time.Date(2026, 8, 26, 10, 15, 0, 0, time.UTC)
 	svc := newReplyAutoSteerServiceFixture(&now)
 	surface := svc.root.Surfaces["surface-1"]
@@ -112,7 +115,7 @@ func TestQueuedMessageStartedShowsPresetOnImmediateDispatch(t *testing.T) {
 	})
 
 	notice := findQueuedStartNotice(events)
-	if notice == nil || notice.TimelineText.Text != "开始执行这条排队消息。请求模型：gpt-6-sol / high（话题设置）。" {
+	if notice != nil {
 		t.Fatalf("immediate preset start notice = %#v", notice)
 	}
 	if command := findPromptSendCommand(events); command == nil {
@@ -120,7 +123,7 @@ func TestQueuedMessageStartedShowsPresetOnImmediateDispatch(t *testing.T) {
 	}
 }
 
-func TestQueuedMessageStartedShowsAstraPresetOnImmediateDispatch(t *testing.T) {
+func TestAstraImmediateDispatchWaitsForRuntimeModelNotice(t *testing.T) {
 	now := time.Date(2026, 9, 5, 9, 0, 0, 0, time.UTC)
 	svc := newReplyAutoSteerServiceFixture(&now)
 	surface := svc.root.Surfaces["surface-1"]
@@ -131,7 +134,7 @@ func TestQueuedMessageStartedShowsAstraPresetOnImmediateDispatch(t *testing.T) {
 	})
 
 	notice := findQueuedStartNotice(events)
-	if notice == nil || notice.TimelineText.Text != "开始执行这条排队消息。请求模型：gpt-6-astra / high（话题设置）。" {
+	if notice != nil {
 		t.Fatalf("immediate Astra preset start notice = %#v", notice)
 	}
 }

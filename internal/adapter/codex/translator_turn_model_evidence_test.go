@@ -1,49 +1,67 @@
 package codex
 
 import (
-	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
 	"testing"
+
+	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
 )
 
 func TestTurnModelEvidenceInvalidatesChangedRequest(t *testing.T) {
-	for _, tc := range []struct {
-		name, model, effort, fresh, wantModel, wantEffort string
-	}{
-		{name: "model and effort changed", model: "new-model", effort: "high"},
-		{name: "model changed", model: "new-model"},
-		{name: "effort changed", effort: "high", wantModel: "old-model"},
-		{name: "unchanged explicit", model: "old-model", effort: "low", wantModel: "old-model", wantEffort: "low"},
-		{name: "defaults preserve observations", wantModel: "old-model", wantEffort: "low"},
-		{name: "fresh evidence", model: "new-model", effort: "high", fresh: `{"method":"thread/settings/updated","params":{"threadId":"thread-1","settings":{"model":"actual-model","reasoningEffort":"medium"}}}`, wantModel: "actual-model", wantEffort: "medium"},
+	for name, policy := range map[string]*agentproto.CodexResumePolicy{
+		"native": nil,
+		"policy": &agentproto.CodexResumePolicy{Mode: agentproto.CodexResumePreserveThreadSettings, ModelProviderID: "provider", ModelMode: agentproto.CodexThreadValueDefault, ReasoningMode: agentproto.CodexThreadValueDefault},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			tr := NewTranslator("inst-1")
-			if _, err := tr.ObserveServer([]byte(`{"method":"thread/started","params":{"thread":{"id":"thread-1","modelProvider":"provider","model":"old-model","config":{"model_reasoning_effort":"low"}}}}`)); err != nil {
-				t.Fatal(err)
-			}
-			commands, err := tr.TranslateCommand(agentproto.Command{Kind: agentproto.CommandPromptSend, Origin: agentproto.Origin{Surface: "surface-1"}, Target: agentproto.Target{ThreadID: "thread-1", CWD: "/tmp/project"}, Prompt: agentproto.Prompt{Inputs: []agentproto.Input{{Type: agentproto.InputText, Text: "next"}}}, Overrides: agentproto.PromptOverrides{Model: tc.model, ReasoningEffort: tc.effort}, CodexResume: &agentproto.CodexResumePolicy{Mode: agentproto.CodexResumePreserveThreadSettings, ModelProviderID: "provider", ModelMode: agentproto.CodexThreadValueDefault, ReasoningMode: agentproto.CodexThreadValueDefault}})
-			if err != nil {
-				t.Fatal(err)
-			}
-			params := payloadParams(t, decodeSinglePayload(t, commands), "turn/start")
-			if tc.model != "" && params["model"] != tc.model {
-				t.Fatalf("outgoing model=%v", params["model"])
-			}
-			if tc.effort != "" && params["effort"] != tc.effort {
-				t.Fatalf("outgoing effort=%v", params["effort"])
-			}
-			if tc.fresh != "" {
-				if _, err := tr.ObserveServer([]byte(tc.fresh)); err != nil {
-					t.Fatal(err)
-				}
-			}
-			started, err := tr.ObserveServer([]byte(`{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-new"}}}`))
-			if err != nil {
-				t.Fatal(err)
-			}
-			effective := started.Events[0].CodexEffectiveThread
-			if effective == nil || effective.Model != tc.wantModel || effective.ReasoningEffort != tc.wantEffort {
-				t.Fatalf("effective=%#v, want %q/%q", effective, tc.wantModel, tc.wantEffort)
+		t.Run(name, func(t *testing.T) {
+			for _, tc := range []struct {
+				name, model, effort, fresh, wantModel, wantEffort string
+			}{
+				{name: "model and effort changed", model: "new-model", effort: "high"},
+				{name: "model changed", model: "new-model"},
+				{name: "effort changed", effort: "high", wantModel: "old-model"},
+				{name: "unchanged explicit", model: "old-model", effort: "low", wantModel: "old-model", wantEffort: "low"},
+				{name: "defaults preserve observations", wantModel: "old-model", wantEffort: "low"},
+				{name: "fresh evidence", model: "new-model", effort: "high", fresh: `{"method":"thread/settings/updated","params":{"threadId":"thread-1","settings":{"model":"actual-model","reasoningEffort":"medium"}}}`, wantModel: "actual-model", wantEffort: "medium"},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					tr := NewTranslator("inst-1")
+					if _, err := tr.ObserveServer([]byte(`{"method":"thread/started","params":{"thread":{"id":"thread-1","modelProvider":"provider","model":"old-model","config":{"model_reasoning_effort":"low"}}}}`)); err != nil {
+						t.Fatal(err)
+					}
+					commands, err := tr.TranslateCommand(agentproto.Command{Kind: agentproto.CommandPromptSend, Origin: agentproto.Origin{Surface: "surface-1"}, Target: agentproto.Target{ThreadID: "thread-1", CWD: "/tmp/project"}, Prompt: agentproto.Prompt{Inputs: []agentproto.Input{{Type: agentproto.InputText, Text: "next"}}}, Overrides: agentproto.PromptOverrides{Model: tc.model, ReasoningEffort: tc.effort}, CodexResume: policy})
+					if err != nil {
+						t.Fatal(err)
+					}
+					params := payloadParams(t, decodeSinglePayload(t, commands), "turn/start")
+					if tc.model != "" && params["model"] != tc.model {
+						t.Fatalf("outgoing model=%v", params["model"])
+					}
+					if tc.effort != "" && params["effort"] != tc.effort {
+						t.Fatalf("outgoing effort=%v", params["effort"])
+					}
+					if tc.fresh != "" {
+						if _, err := tr.ObserveServer([]byte(tc.fresh)); err != nil {
+							t.Fatal(err)
+						}
+					}
+					started, err := tr.ObserveServer([]byte(`{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-new"}}}`))
+					if err != nil {
+						t.Fatal(err)
+					}
+					event := started.Events[0]
+					if event.Model != tc.wantModel || event.ReasoningEffort != tc.wantEffort {
+						t.Fatalf("event model=%q/%q, want %q/%q", event.Model, event.ReasoningEffort, tc.wantModel, tc.wantEffort)
+					}
+					effective := event.CodexEffectiveThread
+					if policy == nil {
+						if effective != nil || event.Problem != nil {
+							t.Fatalf("native model evidence must not require a resume policy: %#v", event)
+						}
+						return
+					}
+					if effective == nil || effective.Model != tc.wantModel || effective.ReasoningEffort != tc.wantEffort {
+						t.Fatalf("effective=%#v, want %q/%q", effective, tc.wantModel, tc.wantEffort)
+					}
+				})
 			}
 		})
 	}

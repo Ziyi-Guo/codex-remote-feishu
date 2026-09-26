@@ -276,12 +276,8 @@ func (s *Service) enqueuePreparedQueueItem(surface *state.SurfaceConsoleRecord, 
 		QueuePosition: position,
 		QueueOn:       true,
 	}, queueItemSourceMessageIDs(item))...)
-	suppressID := item.ID
-	if isExplicitCodexMessagePreset(item) {
-		suppressID = ""
-	}
 	return append(events, s.dispatchNextWithOptions(surface, dispatchNextOptions{
-		suppressQueuedStartNoticeQueueItemID: suppressID,
+		suppressQueuedStartNoticeQueueItemID: item.ID,
 	})...)
 }
 
@@ -550,7 +546,8 @@ func (s *Service) markRemoteTurnRunning(instanceID string, event agentproto.Even
 		s.recordThreadUserMessage(inst, targetThreadID, item.SourceMessagePreview)
 	}
 	s.progress.captureRemoteTurnStartTotalUsage(instanceID, binding, queuedItemExecutionThreadID(item))
-	if binding.StartedAt.IsZero() {
+	firstStart := binding.StartedAt.IsZero()
+	if firstStart {
 		binding.StartedAt = s.now().UTC()
 		// Keep this turn's runtime evidence independent of later settings changes.
 		binding.Model = strings.TrimSpace(event.Model)
@@ -568,6 +565,11 @@ func (s *Service) markRemoteTurnRunning(instanceID string, event agentproto.Even
 		QueueItemID: item.ID,
 		Status:      string(item.Status),
 	}, queueItemSourceMessageIDs(item))
+	if firstStart && s.promptConfigBackend(inst, surface) == agentproto.BackendCodex {
+		if notice := s.turnModelStartedEvent(surface, item, binding); notice != nil {
+			events = append(events, *notice)
+		}
+	}
 	return events
 }
 
