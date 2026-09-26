@@ -117,6 +117,8 @@ type remoteTurnBinding struct {
 	TurnID                string
 	Status                string
 	StartedAt             time.Time
+	LastProgressAt        time.Time
+	LastPingAt            time.Time
 	InterruptRequested    bool
 	InterruptRequestedAt  time.Time
 	AnyOutputSeen         bool

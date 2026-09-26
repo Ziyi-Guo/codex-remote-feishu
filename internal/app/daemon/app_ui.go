@@ -324,6 +324,17 @@ func (a *App) enrichTemporarySessionEventLocked(event eventcontract.Event) event
 }
 
 func (a *App) recordUIEventDelivery(event eventcontract.Event, operations []feishu.Operation) {
+	for _, operation := range operations {
+		if (operation.Kind != feishu.OperationSendCard && operation.Kind != feishu.OperationUpdateCard && operation.Kind != feishu.OperationSendText) || strings.TrimSpace(operation.MessageID) == "" {
+			continue
+		}
+		if payload, ok := blockPayloadFromEvent(event); ok {
+			a.service.RecordRemoteTurnVisibleProgress(event.SurfaceSessionID, payload.Block.TurnID, time.Now())
+		} else if payload, ok := noticePayloadFromEvent(event); ok && payload.Notice.Code == "turn_progress_heartbeat" {
+			a.service.RecordRemoteTurnVisibleProgress(event.SurfaceSessionID, payload.Notice.DeliveryDedupKey, time.Now())
+		}
+		break
+	}
 	if payload, ok := requestPayloadFromEvent(event); ok {
 		for _, operation := range operations {
 			switch operation.Kind {
