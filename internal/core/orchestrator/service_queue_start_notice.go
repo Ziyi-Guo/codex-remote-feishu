@@ -1,7 +1,6 @@
 package orchestrator
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
@@ -31,9 +30,6 @@ func (s *Service) queuedMessageStartedEvent(surface *state.SurfaceConsoleRecord,
 	}
 	replyToMessagePreview := strings.TrimSpace(xutil.FirstNonEmpty(item.ReplyToMessagePreview, item.SourceMessagePreview))
 	text := queuedMessageStartedText
-	if isExplicitCodexMessagePreset(item) {
-		text += fmt.Sprintf("请求模型：%s / %s（话题设置）。", strings.TrimSpace(item.FrozenOverride.Model), strings.TrimSpace(item.FrozenOverride.ReasoningEffort))
-	}
 	return &eventcontract.Event{
 		Kind:                 eventcontract.KindTimelineText,
 		GatewayID:            surface.GatewayID,
@@ -50,14 +46,23 @@ func (s *Service) queuedMessageStartedEvent(surface *state.SurfaceConsoleRecord,
 	}
 }
 
-func isExplicitCodexMessagePreset(item *state.QueueItemRecord) bool {
-	if item == nil || item.SourceKind != state.QueueItemSourceUser || queuedItemPromptDispatchPlan(item).Purpose == agentproto.PromptPurposeReview {
-		return false
+// Report only the model evidence captured for this started turn, never a request default.
+func (s *Service) turnModelStartedEvent(surface *state.SurfaceConsoleRecord, item *state.QueueItemRecord, binding *remoteTurnBinding) *eventcontract.Event {
+	if queuedItemPromptDispatchPlan(item).Purpose == agentproto.PromptPurposeReview {
+		return nil
 	}
-	switch item.CodexMessagePreset {
-	case "luna", "terra", "sol", "astra":
-		return true
-	default:
-		return false
+	event := s.queuedMessageStartedEvent(surface, item)
+	if event == nil {
+		return nil
 	}
+	model := binding.Model
+	if model == "" {
+		model = "暂未获得运行确认"
+	} else if binding.ReasoningEffort != "" {
+		model += " / " + binding.ReasoningEffort
+	}
+	event.TimelineText.Type = control.TimelineTextTurnModelStarted
+	event.TimelineText.TurnID = binding.TurnID
+	event.TimelineText.Text = "本次回复模型：" + model + "。"
+	return event
 }

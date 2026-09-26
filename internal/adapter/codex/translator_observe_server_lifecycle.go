@@ -154,12 +154,15 @@ func (t *Translator) observeTurnStarted(message map[string]any) Result {
 		pendingRemoteSurface,
 		pendingLocal,
 	)
+	observed := t.observedThreads[strings.TrimSpace(threadID)]
 	effective, problem := t.codexEffectiveThreadFromObserved(threadID, turnID, t.pendingCodexPolicyByThread[threadID], lookupMap(message, "params"))
 	event := agentproto.Event{
 		Kind:                 agentproto.EventTurnStarted,
 		ThreadID:             threadID,
 		TurnID:               turnID,
 		Status:               "running",
+		Model:                observed.Model,
+		ReasoningEffort:      observed.ReasoningEffort,
 		TrafficClass:         trafficClass,
 		Initiator:            initiator,
 		CodexEffectiveThread: effective,
