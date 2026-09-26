@@ -1,8 +1,8 @@
 # Remote Surface 核心状态机
 
 > Type: `general`
-> Updated: `2026-09-25`
-> Summary: Codex 模型与推理强度改为话题设置；同步前缀、默认继承、队列冻结与持久化失败边界。
+> Updated: `2026-09-26`
+> Summary: 运行中的飞书 turn 若 10 分钟没有成功送达的助手进度，追加自动状态提醒。
 > 1. visible 但 contract mismatch 的 workspace/session 仍然可见，不会再被 `/list`、`/use`、workspace recency、target picker 直接吞掉；
 > 2. 这些 mismatch 候选不会再假装“可直接接管”；
 > 3. detached `/use`、headless exact-thread restore、workspace attach、startup resume、`/mode` backend switch、`/claudeprofile`、`/codexprofile`、`/opencodeprofile` 现在都会统一先判定 `attach visible compatible / reuse managed compatible / restart managed incompatible / fresh-start matching headless / reject`，而不是各自维护平行 continuation；
@@ -439,6 +439,7 @@ thread 自身现在还有一层**authoritative runtime status overlay**，来源
 7. `E6 Abandoning` 是 detach 的取消门，不是可恢复的 detached 状态：headless/VS Code 的自动恢复入口必须跳过 `Abandoning=true` 的 surface；detach-like action 的 durable resume target 清理必须先于任何可能释放 app mutex 的事件派发。
 8. Feishu room active reservations 不是新的 surface 执行态，而是 room context coordination overlay；当前 surface 自己的 `E2/E3` 不会被自己的 reservation 重复阻挡，但同 room 其它 surface 的普通 queued dispatch、AutoContinue scheduled dispatch、AutoWhip scheduled dispatch、review start/apply 和 headless replay 会在真正创建新 turn 前检查预算，并收到 `room_workspace_active` notice；其中自动 tick 路径会复用 active notice cooldown，避免每轮 tick 都追加同一条提示。
 9. reservation 的释放收口到各自 owner 的终止路径：queue item 的 turn completed/failed、pre-start detach abort、system/recovery fail、finalizeDetachedSurface 释放 queue-owned reservation；review session、pending headless/replay、Claude restart failure/timeout/disconnect 分别释放自己的 reservation；destructive room workspace reset 会额外清掉 room-level reservations。transport degraded 若仍保留真实 queue/remote ownership，保留对应 queue reservation，不提前放行同 room 新 turn。
+10. `E3 Running` 的远端 turn 以 `turn.started` 为起点；若连续 10 分钟没有成功送达的助手正文进度，daemon tick 会向原消息回复一条“任务仍在运行、尚未完成”的自动状态提醒。工具事件、推理事件和未成功送达的消息不重置计时；成功送达的提醒也重置计时。仅对在线实例、未请求中断的 active remote turn 生效，turn 收尾即停止。网关发送失败后每分钟最多重试一次；网关不可用时无法保证送达。
 
 ### 3.4 审阅态 overlay
 
