@@ -130,7 +130,11 @@ func compactPromptOverride(value state.ModelConfigRecord) state.ModelConfigRecor
 	return compactModelConfig(value)
 }
 
-func resolveCodexRequestedPromptOverride(surface *state.SurfaceConsoleRecord, override state.ModelConfigRecord) state.ModelConfigRecord {
+func (s *Service) SetCodexRemoteDefault(model, effort string) {
+	s.codexRemoteDefault = state.NormalizeCodexPromptOverride(state.CodexPromptOverrideRecord{Model: model, ReasoningEffort: effort})
+}
+
+func (s *Service) resolveCodexRequestedPromptOverride(surface *state.SurfaceConsoleRecord, override state.ModelConfigRecord) state.ModelConfigRecord {
 	requested := compactPromptOverride(override)
 	if surface == nil {
 		return requested
@@ -141,6 +145,14 @@ func resolveCodexRequestedPromptOverride(surface *state.SurfaceConsoleRecord, ov
 	}
 	if requested.ReasoningEffort == "" {
 		requested.ReasoningEffort = topic.ReasoningEffort
+	}
+	if requested.Model == "" && requested.ReasoningEffort == "" &&
+		state.IsHeadlessProductMode(s.normalizeSurfaceProductMode(surface)) {
+		profile, ok := s.surfaceCodexProfileSummary(surface)
+		if ok && (profile.Kind == state.CodexProfileKindNative || profile.Kind == state.CodexProfileKindOAuth) {
+			requested.Model = s.codexRemoteDefault.Model
+			requested.ReasoningEffort = s.codexRemoteDefault.ReasoningEffort
+		}
 	}
 	return requested
 }
@@ -162,12 +174,12 @@ func (s *Service) resolveFrozenPromptOverride(inst *state.InstanceRecord, surfac
 			override = settings.PromptOverride
 		}
 		if agentproto.NormalizeBackend(backend) == agentproto.BackendCodex {
-			override = resolveCodexRequestedPromptOverride(surface, override)
+			override = s.resolveCodexRequestedPromptOverride(surface, override)
 		}
 		return state.NormalizePromptOverrideForBackend(backend, compactPromptOverride(override))
 	}
 	if agentproto.NormalizeBackend(backend) == agentproto.BackendCodex {
-		requestedOverride := resolveCodexRequestedPromptOverride(surface, override)
+		requestedOverride := s.resolveCodexRequestedPromptOverride(surface, override)
 		resolution := s.resolvePromptConfig(inst, surface, threadID, cwd, requestedOverride)
 		return state.NormalizePromptOverrideForBackend(backend, state.ModelConfigRecord{
 			Model:           requestedOverride.Model,

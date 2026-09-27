@@ -1,8 +1,8 @@
 # Remote Surface 核心状态机
 
 > Type: `general`
-> Updated: `2026-09-25`
-> Summary: Codex 模型与推理强度改为话题设置；同步前缀、默认继承、队列冻结与持久化失败边界。
+> Updated: `2026-09-27`
+> Summary: Codex 话题模型设置与可配置的 Remote 默认模型；同步前缀、默认继承、队列冻结与持久化失败边界。
 > 1. visible 但 contract mismatch 的 workspace/session 仍然可见，不会再被 `/list`、`/use`、workspace recency、target picker 直接吞掉；
 > 2. 这些 mismatch 候选不会再假装“可直接接管”；
 > 3. detached `/use`、headless exact-thread restore、workspace attach、startup resume、`/mode` backend switch、`/claudeprofile`、`/codexprofile`、`/opencodeprofile` 现在都会统一先判定 `attach visible compatible / reuse managed compatible / restart managed incompatible / fresh-start matching headless / reject`，而不是各自维护平行 continuation；
@@ -2066,7 +2066,7 @@ retained-offline overlay 额外规则：
 
 - `SurfaceConsoleRecord.CodexPromptOverride` 独立持有当前 surface 的 model/reasoning，`PromptOverride` 保留其他 backend 与 access 语义。`/model`、`/reasoning` 的原有卡片和 slash 入口继续可用；Codex 群聊与私聊均可写当前话题，`clear` 清掉对应覆盖，不改其他话题或机器人 Profile。
 - 动态 GPT Codex Profile 支持正文前缀 `[luna]`、`[terra]`、`[sol]`、`[astra]`，依次映射 `gpt-6-luna`、`gpt-5.6-terra`、`gpt-6-sol`、`gpt-6-astra`。默认前缀强度为 `high`，可用 `[模型:low|medium|high|xhigh|max]` 指定。只剥离本条正文前缀，保留引用输入；前缀在保存成功后成为本话题后续消息的设置。
-- 无前缀读取本话题显式覆盖；没有覆盖时 queue 与 dispatch 不写 model/effort，交给 Codex native / OAuth / API Profile 的实际配置。VS Code 的显式话题模型与 access 独立合并，不因 access 非空而丢失模型。下一条消息摘要仅显示已知 thread/workspace/Profile 配置，未知显示跟随默认，不制造 Terra/Sol/5.5 fallback。native thread policy 继续使用 `codex_default`，adapter 不从旧模板补模型。
+- 无前缀先读取本话题显式覆盖。Codex native/OAuth headless 没有话题覆盖时，使用管理页保存的 `codex.defaultModel/defaultReasoningEffort`；两项均为空时 queue 与 dispatch 不写 model/effort，交给 Codex 原生配置。管理页修改在持久化成功后作用于后续未覆盖的请求；已排队请求保留冻结值。固定 API Profile 和 VS Code 不使用这项 Remote 默认值，VS Code 的显式话题模型与 access 独立合并，不因 access 非空而丢失模型。native thread policy 继续使用 `codex_default`，adapter 不从旧模板补模型。
 - 前缀先校验固定 Profile 与完整有效 catalog：固定 Profile 拒绝 GPT 前缀，完整目录明确缺模型或不支持强度时拒绝，未知/分页/失败目录保持高级输入路径。入队冻结请求，后续话题修改不追改已排队内容；显式前缀队列在 dispatch 时再校验，配置漂移时取消该项、提示原因并继续后续队列，不静默换模型；取消导致队列排空时走已有 Goal interlock 的 get/fingerprint/resume 链收口本队列拥有的暂停，仍有工作时不提前恢复。
 - AutoWhip 继承父项冻结的 model/effort（包括空值继承 native 默认），不读后来更改的话题选择。带前缀的 active reply 排队，避免 Steer 无法修改当前 turn 配置；普通 reply 保留原有 Steer 行为。原生 `/review` 不支持 model/effort override：话题选择与已观测 thread 不一致或无法确认时拒绝启动，提示先发普通消息再 review；固定 Profile 下忽略暂停的话题覆盖。
 - daemon 在 model/reasoning 或前缀修改进入 queue/dispatch 之前，同步写 surface resume store，成功后才改内存并输出成功结果。写失败时不消费 staged 输入、不创建 queue/active item，输出可重试错误；普通 store sync 跳过失败 surface，避免写出伪成功快照。无持久化 store 时同样拒绝修改。

@@ -109,7 +109,7 @@ func (s *Service) enqueueQueueItemWithTargetAndPreset(surface *state.SurfaceCons
 	dispatchPlan = agentproto.NormalizePromptDispatchPlan(dispatchPlan)
 	requestedOverride := overrides
 	if strings.TrimSpace(preset) == "" && s.promptConfigBackend(inst, surface) == agentproto.BackendCodex && !s.surfaceUsesLocalRequestedPromptOverrides(surface) {
-		requestedOverride = resolveCodexRequestedPromptOverride(surface, overrides)
+		requestedOverride = s.resolveCodexRequestedPromptOverride(surface, overrides)
 	}
 	frozenOverride := s.resolveFrozenPromptOverride(inst, surface, threadID, cwd, requestedOverride)
 	frozenPlanMode := s.freezePlanModeForPrompt(surface)
