@@ -289,15 +289,17 @@ func launchdUserStopAndWait(ctx context.Context, state InstallState, timeout, po
 	deadline := time.Now().Add(timeout)
 	label := launchdLabelForInstance(state.InstanceID)
 	for {
-		running, err := launchdUserIsRunning(ctx, state)
+		// bootout is asynchronous: exiting/waiting jobs still own the label.
+		// Bootstrap is safe only after launchd no longer has the service.
+		_, err := launchdUserStatus(ctx, state)
 		if err != nil {
+			if isLaunchdMissingErr(err) {
+				return nil
+			}
 			return fmt.Errorf("confirm launchd stop for %s: %w", label, err)
 		}
-		if !running {
-			return nil
-		}
 		if timeout <= 0 || time.Now().After(deadline) {
-			return fmt.Errorf("launchd service %s still active after %s", label, timeout)
+			return fmt.Errorf("launchd service %s still registered after %s", label, timeout)
 		}
 		select {
 		case <-ctx.Done():
@@ -312,7 +314,7 @@ func launchdUserRestart(ctx context.Context, state InstallState) error {
 	if err != nil {
 		return err
 	}
-	if err := launchdUserBootout(ctx, state); err != nil {
+	if err := launchdUserStopAndWait(ctx, state, 15*time.Second, 100*time.Millisecond); err != nil {
 		return err
 	}
 	return launchdUserBootstrap(ctx, state)

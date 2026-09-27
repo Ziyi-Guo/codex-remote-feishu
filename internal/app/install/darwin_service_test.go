@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func withDarwinGOOS(t *testing.T) func() {
@@ -394,7 +395,7 @@ func TestLaunchdUserStartCallsKickstart(t *testing.T) {
 	}
 }
 
-func TestLaunchdUserRestartCallsKickstartWithK(t *testing.T) {
+func TestLaunchdUserRestartWaitsForUnregistration(t *testing.T) {
 	defer withDarwinGOOS(t)()
 	baseDir := t.TempDir()
 	stubServiceUserHome(t, baseDir)
@@ -411,8 +412,19 @@ func TestLaunchdUserRestartCallsKickstartWithK(t *testing.T) {
 	})
 
 	var calls []string
+	probes := 0
 	defer withMockLaunchctl(t, func(_ context.Context, args ...string) (string, error) {
 		calls = append(calls, strings.Join(args, " "))
+		if args[0] == "print" {
+			probes++
+			if probes == 1 {
+				return "state = exiting\npid = 12345\n", nil
+			}
+			return "", fmt.Errorf("Could not find service")
+		}
+		if args[0] == "bootstrap" && probes < 2 {
+			t.Fatal("bootstrap attempted before service removal")
+		}
 		return "", nil
 	})()
 
@@ -761,5 +773,34 @@ func TestXmlEscape(t *testing.T) {
 		if got != tc.want {
 			t.Fatalf("xmlEscape(%q) = %q, want %q", tc.input, got, tc.want)
 		}
+	}
+}
+
+func TestLaunchdStopWaitsUntilServiceUnregistered(t *testing.T) {
+	defer withDarwinGOOS(t)()
+	for _, phase := range []string{"exiting", "waiting"} {
+		t.Run(phase, func(t *testing.T) {
+			baseDir := t.TempDir()
+			stubServiceUserHome(t, baseDir)
+			state := InstallState{InstanceID: "stable", BaseDir: baseDir}
+			ApplyStateMetadata(&state, StateMetadataOptions{InstanceID: state.InstanceID, BaseDir: baseDir, ServiceManager: ServiceManagerLaunchdUser})
+			probes := 0
+			defer withMockLaunchctl(t, func(_ context.Context, args ...string) (string, error) {
+				if args[0] == "bootout" {
+					return "", nil
+				}
+				probes++
+				if probes < 3 {
+					return "state = " + phase + "\npid = 12345\n", nil
+				}
+				return "", fmt.Errorf("Could not find service")
+			})()
+			if err := launchdUserStopAndWait(context.Background(), state, time.Second, time.Millisecond); err != nil {
+				t.Fatal(err)
+			}
+			if probes != 3 {
+				t.Fatalf("stop returned while service still registered: probes=%d, want 3", probes)
+			}
+		})
 	}
 }

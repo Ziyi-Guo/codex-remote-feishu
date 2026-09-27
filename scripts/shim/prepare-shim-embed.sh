@@ -45,6 +45,7 @@ source_digest="$(
       find "${ROOT_DIR}/cmd/shim" \
         "${ROOT_DIR}/internal/app/vscodeshim" \
         "${ROOT_DIR}/internal/app/upgradeshim" \
+        "${ROOT_DIR}/internal/app/install" \
         "${ROOT_DIR}/internal/shim" \
         -type f -name '*.go' \
         ! -path "${ROOT_DIR}/internal/shim/embed/*" \
