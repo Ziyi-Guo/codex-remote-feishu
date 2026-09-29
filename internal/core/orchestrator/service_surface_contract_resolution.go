@@ -70,6 +70,9 @@ func (s *Service) resolveHeadlessContract(surface *state.SurfaceConsoleRecord, c
 		if inst == nil {
 			continue
 		}
+		if owner := s.instanceClaimSurface(inst.InstanceID); owner != nil && (surface == nil || owner.SurfaceSessionID != surface.SurfaceSessionID) {
+			continue
+		}
 		if ctx.AllowDirectVisible != nil && !ctx.AllowDirectVisible(inst) {
 			continue
 		}

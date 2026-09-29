@@ -1,7 +1,7 @@
 # Remote Surface 核心状态机
 
 > Type: `general`
-> Updated: `2026-09-27`
+> Updated: `2026-09-30`
 > Summary: Codex 话题与 Remote 默认模型设置；权限状态以实际授权、身份和逐操作检查为依据。
 > 1. visible 但 contract mismatch 的 workspace/session 仍然可见，不会再被 `/list`、`/use`、workspace recency、target picker 直接吞掉；
 > 2. 这些 mismatch 候选不会再假装“可直接接管”；
@@ -710,7 +710,7 @@ review mode 第一版当前不是新的 route state，而是挂在 surface 上�
    3. `/workspace list` 中选择 `worktree_create` 后，当前 owner card 会进入 Worktree 子页；`target_picker_back` 只在这条内部子页路径上返回原 target 页。
    4. 这些回调属于 same-context pure navigation，满足 daemon freshness 时会 inline replace 当前卡；`target_picker_cancel` 也会 inline replace，但它的效果是把当前 owner card 收束成 sealed terminal，并清掉 active picker / owner-card flow。
 7. 真正的产品状态变化只发生在 `target_picker_confirm`。
-   1. `/workspace list` 选既有会话时，复用现有 `/use` / `use_thread` / cross-workspace attach 语义；必要时会先统一经过 `resolveWorkspaceContract(...)` 与对应的 workspace continuation owner，再落到 attach / restart-managed / fresh-start 的单一路径。
+   1. `/workspace list` 选既有会话时，复用现有 `/use` / `use_thread` / cross-workspace attach 语义；必要时会先统一经过 `resolveWorkspaceContract(...)` 与对应的 workspace continuation owner，再落到 attach / restart-managed / fresh-start 的单一路径。`resolveWorkspaceContract(...)` 只把未被其他 surface 占用的在线实例作为直接接管候选；若子工作区仅出现在一个已被占用的父目录实例中，则为新话题启动独立 headless，保留原实例的 attachment。
    2. `/workspace list` 选 `worktree_create` 时，只切到同一 owner card 的 Worktree 子页，不创建目录、不改 route；用户在子页填写分支名/目录名并再次确认后才进入 Worktree 创建链路。
    3. `/workspace new dir` 下，`target_picker_open_path_picker` 会先打开目录 path picker；confirm/cancel 回调会先异步 ack，再把最新主卡 patch 回同一张 owner card。主卡只要已经回填出有效目录，`target_picker_confirm` 就会继续：若命中已知 workspace，则直接复用该工作区并进入新会话待命；若不是已知 workspace，则把该目录解析成 workspace，并按 `PrepareNewThread=true` 的语义进入 `R5` / fresh headless `R5` 路径。
    4. `/workspace new git` 下，主卡会内联保存 `repo_url` / `directory_name` 草稿，并通过 `target_picker_open_path_picker` 选择父目录；`target_picker_confirm` 随后直接下发 daemon-side `workspace.git_import` 命令。
