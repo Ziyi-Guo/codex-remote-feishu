@@ -2,6 +2,7 @@ package feishu
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -194,6 +195,7 @@ func (b *FeishuCallBroker) do(ctx context.Context, spec CallSpec, fn func(contex
 	}
 	spec = b.normalizeSpec(spec)
 	attempt := 0
+	refreshedToken := false
 	for {
 		if err := b.waitForPermissionAllowance(ctx, spec); err != nil {
 			return nil, err
@@ -204,6 +206,12 @@ func (b *FeishuCallBroker) do(ctx context.Context, spec CallSpec, fn func(contex
 		result, err := fn(ctx)
 		if err == nil {
 			return result, nil
+		}
+		var apiErr *APIError
+		if !refreshedToken && errors.As(err, &apiErr) && (apiErr.Code == 99991663 || apiErr.Code == 99991664) {
+			feishuTokenCache.clear()
+			refreshedToken = true
+			continue
 		}
 		if gap, ok := ExtractPermissionGap(err); ok {
 			b.markPermissionBlocked(spec, gap)

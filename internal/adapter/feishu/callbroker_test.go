@@ -71,6 +71,32 @@ func TestFeishuCallBrokerRetriesRateLimitedIMCall(t *testing.T) {
 	}
 }
 
+func TestFeishuCallBrokerRefreshesRejectedTenantTokenOnce(t *testing.T) {
+	broker := NewFeishuCallBroker("app-1", NewLarkClient("app-1", "secret"))
+	const tokenKey = "tenant_access_token:app_secret:app-1:"
+	feishuTokenCache.clear()
+	defer feishuTokenCache.clear()
+	if err := feishuTokenCache.Set(context.Background(), tokenKey, "rejected-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	attempts := 0
+	_, err := DoSDK(context.Background(), broker, CallSpec{
+		API: "im.v1.message.reply", Class: CallClassIMSend, Retry: RetryRateLimitOnly,
+	}, func(context.Context, *lark.Client) (bool, error) {
+		attempts++
+		if attempts == 1 {
+			return false, &APIError{API: "im.v1.message.reply", Code: 99991663, Msg: "Invalid access token"}
+		}
+		if token, _ := feishuTokenCache.Get(context.Background(), tokenKey); token != "" {
+			t.Fatalf("retry reused rejected token")
+		}
+		return true, nil
+	})
+	if err != nil || attempts != 2 {
+		t.Fatalf("expected one fresh-token retry, attempts=%d err=%v", attempts, err)
+	}
+}
+
 func TestFeishuCallBrokerPermissionBlockShortCircuitsUntilCleared(t *testing.T) {
 	broker := NewFeishuCallBroker("app-1", NewLarkClient("", ""))
 	current := time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC)
