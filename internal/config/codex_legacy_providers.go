@@ -12,6 +12,7 @@ const (
 )
 
 type CodexSettings struct {
+	ModelPresets                   map[string]CodexModelPreset       `json:"modelPresets,omitempty"`
 	DefaultModel                   string                            `json:"defaultModel,omitempty"`
 	DefaultReasoningEffort         string                            `json:"defaultReasoningEffort,omitempty"`
 	ProfileCatalogMigrationVersion int                               `json:"profileCatalogMigrationVersion,omitempty"`

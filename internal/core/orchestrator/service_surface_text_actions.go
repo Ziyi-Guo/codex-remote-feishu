@@ -79,7 +79,7 @@ func (s *Service) handleText(surface *state.SurfaceConsoleRecord, action control
 	presetKey := ""
 	if (dynamicCodexPreset || fixedCodexProfile) && strings.TrimSpace(action.Text) != "" {
 		originalText := action.Text
-		cleanText, preset, explicit, parseErr := parseCodexMessagePreset(originalText)
+		cleanText, preset, explicit, parseErr := parseCodexMessagePreset(originalText, s.codexModelPresets)
 		if fixedCodexProfile {
 			if explicit {
 				fixedModel := ""

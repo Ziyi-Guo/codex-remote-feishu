@@ -15,9 +15,9 @@ type codexMessagePreset struct {
 	ReasoningEffort string
 }
 
-const codexMessagePresetUsage = "用法：在正文开头使用 [luna]、[terra]、[sol] 或 [astra]；可写成 [模型:low|medium|high|xhigh|max]。"
+const codexMessagePresetUsage = "用法：在正文开头使用配置的 [别名]；可写成 [别名:low|medium|high|xhigh|max]。"
 
-func parseCodexMessagePreset(text string) (clean string, preset codexMessagePreset, explicit bool, err error) {
+func parseCodexMessagePreset(text string, presets map[string]state.CodexPromptOverrideRecord) (clean string, preset codexMessagePreset, explicit bool, err error) {
 	clean = strings.TrimSpace(text)
 	if clean == "" {
 		return "", preset, false, errors.New("消息正文不能为空")
@@ -31,16 +31,12 @@ func parseCodexMessagePreset(text string) (clean string, preset codexMessagePres
 		return clean, preset, false, nil
 	}
 	key, effort, hasEffort := strings.Cut(clean[1:end], ":")
-	for _, candidate := range []codexMessagePreset{
-		{Key: "luna", Model: "gpt-6-luna", ReasoningEffort: "high"},
-		{Key: "terra", Model: "gpt-5.6-terra", ReasoningEffort: "high"},
-		{Key: "sol", Model: "gpt-6-sol", ReasoningEffort: "high"},
-		{Key: "astra", Model: "gpt-6-astra", ReasoningEffort: "high"},
-	} {
-		if !strings.EqualFold(key, candidate.Key) {
-			continue
-		}
-		preset = candidate
+	if presets == nil {
+		presets = state.DefaultCodexModelPresets()
+	}
+	key = strings.ToLower(key)
+	if candidate, ok := presets[key]; ok {
+		preset = codexMessagePreset{Key: key, Model: candidate.Model, ReasoningEffort: candidate.ReasoningEffort}
 		explicit = true
 		clean = strings.TrimSpace(clean[end+1:])
 		if hasEffort {
@@ -138,7 +134,7 @@ func stripCodexMessagePresetFromCurrentInputs(inputs, currentInputs []agentproto
 		if out[i].Type != agentproto.InputText {
 			continue
 		}
-		clean, candidate, explicit, _ := parseCodexMessagePreset(out[i].Text)
+		clean, candidate, explicit, _ := parseCodexMessagePreset(out[i].Text, map[string]state.CodexPromptOverrideRecord{preset.Key: {Model: preset.Model, ReasoningEffort: preset.ReasoningEffort}})
 		if explicit && candidate.Key == preset.Key {
 			out[i].Text = clean
 			return out

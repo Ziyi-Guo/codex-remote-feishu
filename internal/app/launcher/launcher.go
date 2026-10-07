@@ -10,6 +10,7 @@ import (
 	"github.com/kxn/codex-remote-feishu/internal/app/daemon"
 	"github.com/kxn/codex-remote-feishu/internal/app/install"
 	"github.com/kxn/codex-remote-feishu/internal/app/installshim"
+	"github.com/kxn/codex-remote-feishu/internal/app/modelconfig"
 	"github.com/kxn/codex-remote-feishu/internal/app/wrapper"
 )
 
@@ -25,6 +26,7 @@ type Options struct {
 }
 
 type RunnerSet struct {
+	RunConfig               func(context.Context, []string, io.Writer, io.Writer) error
 	RunDaemon               func(context.Context, []string, string, string) error
 	RunInstall              func([]string, io.Reader, io.Writer, io.Writer, string) error
 	RunPackagedInstall      func([]string, io.Reader, io.Writer, io.Writer, string) error
@@ -105,6 +107,12 @@ func Main(opts Options) int {
 			return 1
 		}
 		return 0
+	case RoleConfig:
+		if err := opts.Runners.RunConfig(ctx, decision.Args, opts.Stdout, opts.Stderr); err != nil {
+			_, _ = fmt.Fprintf(opts.Stderr, "config error: %v\n", err)
+			return 1
+		}
+		return 0
 	case RoleService:
 		if err := opts.Runners.RunService(decision.Args, opts.Stdin, opts.Stdout, opts.Stderr, opts.Version); err != nil {
 			_, _ = fmt.Fprintf(opts.Stderr, "service error: %v\n", err)
@@ -164,6 +172,9 @@ func withDefaults(opts Options) Options {
 	if opts.Runners.RunLocalUpgrade == nil {
 		opts.Runners.RunLocalUpgrade = install.RunLocalUpgrade
 	}
+	if opts.Runners.RunConfig == nil {
+		opts.Runners.RunConfig = modelconfig.Run
+	}
 	if opts.Runners.RunService == nil {
 		opts.Runners.RunService = install.RunService
 	}
@@ -185,6 +196,7 @@ func usageText() string {
   codex-remote packaged-install-probe [flags]
   codex-remote local-upgrade [flags]
   codex-remote service <subcommand> [flags]
+  codex-remote config <check|apply> [--config PATH] [--admin-url URL (apply only)]
   codex-remote app-server [codex app-server args...]
   codex-remote claude-app-server [claude app-server args...]
   codex-remote wrapper app-server [codex app-server args...]
