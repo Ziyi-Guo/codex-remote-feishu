@@ -138,6 +138,43 @@ daemon 不会在后台自动弹升级提示；升级只通过这条手动入口�
 
 这些 profile 保存在 codex-remote 自己的 `config.json` 里，不会改写 `~/.codex` 或 `~/.claude` 的原有配置，可以随时切换、并行使用。
 
+### 默认模型与消息前缀
+
+在现有 `config.json` 的 `codex` 字段中设置默认模型和快捷前缀（下方是局部示例，请保留文件中的其他配置）：
+
+```json
+{
+  "codex": {
+    "defaultModel": "gpt-6.1-sol",
+    "defaultReasoningEffort": "high",
+    "modelPresets": {
+      "sol": { "model": "gpt-6.1-sol", "reasoningEffort": "high" },
+      "luna": { "model": "gpt-6-luna", "reasoningEffort": "high" },
+      "terra": { "model": "gpt-5.6-terra", "reasoningEffort": "high" },
+      "astra": { "model": "gpt-6-astra", "reasoningEffort": "high" }
+    }
+  }
+}
+```
+
+手动编辑后先检查，再应用到正在运行的服务：
+
+```bash
+codex-remote config check
+codex-remote config apply
+# 非默认配置文件：
+codex-remote config apply --config /path/to/config.json
+```
+
+`check` 只在本地检查配置格式；`apply` 只更新 Codex 默认模型和前缀映射，不重启服务。它要求请求路径与服务当前使用的配置文件一致；如果文件中的管理端口也被修改，使用 `--admin-url http://127.0.0.1:9501` 指向仍在运行的本地管理入口。其他配置项仍按各自的配置流程应用。
+
+管理页保存默认模型会同时写盘并应用；模型候选来自在线本机/ChatGPT headless 实例的运行时目录。完整目录明确不支持目标模型或档位时拒绝应用，保留旧运行配置；目录失败、缺失或不完整时显示“尚未验证”，允许保存和应用，不保证模型请求一定成功。手改文件后应用失败，文件里的候选值仍在，需修正后再次应用。
+
+两个默认字段同时留空表示继承 Codex 本机配置。未配置 `modelPresets` 或设为 `null` 时兼容原有 `luna/terra/sol/astra` 映射；其中旧 `sol` 仍是 `gpt-6-sol`。显式提供映射会替换整份前缀表，`{}` 禁用所有模型前缀。别名由小写英文字母开头，后续允许小写字母、数字、`_`、`-`，总长最多 32；`[sol:high]` 可覆盖该条前缀的档位。
+
+配置只影响之后解析、入队的消息；运行中和已排队请求保留具体模型，删除或重映射别名不会重定向它们。已保存的话题模型覆盖优先于全局默认；仍在等待连接、尚未入队的输入会在恢复时按当时配置解析。固定 API Profile 和 VS Code 不使用 Remote 默认值。客户端不支持目标模型时仍需单独升级客户端，`config apply` 不会升级或重启进程。
+
+
 在飞书里切换：
 
 ```text

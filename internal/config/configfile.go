@@ -230,6 +230,9 @@ func WriteAppConfig(path string, cfg AppConfig) error {
 	if err := ValidateCodexRemoteDefault(cfg.Codex.DefaultModel, cfg.Codex.DefaultReasoningEffort); err != nil {
 		return err
 	}
+	if err := ValidateCodexModelPresets(cfg.Codex.ModelPresets); err != nil {
+		return err
+	}
 	if err := ValidateOpenCodeAPIProfileRecords(cfg.OpenCode.Profiles); err != nil {
 		return err
 	}
@@ -294,6 +297,9 @@ func readConfigFile(path string) (AppConfig, error) {
 	}
 	if err := ValidateCodexRemoteDefault(cfg.Codex.DefaultModel, cfg.Codex.DefaultReasoningEffort); err != nil {
 		return AppConfig{}, fmt.Errorf("validate codex remote default %s: %w", path, err)
+	}
+	if err := ValidateCodexModelPresets(cfg.Codex.ModelPresets); err != nil {
+		return AppConfig{}, fmt.Errorf("validate codex model presets %s: %w", path, err)
 	}
 	if err := ValidateOpenCodeAPIProfileRecords(cfg.OpenCode.Profiles); err != nil {
 		return AppConfig{}, fmt.Errorf("validate opencode profile catalog %s: %w", path, err)
@@ -438,6 +444,7 @@ func (cfg AppConfig) normalized() AppConfig {
 		cfg.Wrapper.IntegrationMode = defaults.Wrapper.IntegrationMode
 	}
 
+	cfg.Codex.ModelPresets = normalizeCodexModelPresets(cfg.Codex.ModelPresets)
 	cfg.Codex.Providers = NormalizeLegacyCodexProviders(cfg.Codex.Providers)
 	cfg.Codex.DefaultModel = strings.TrimSpace(cfg.Codex.DefaultModel)
 	cfg.Codex.DefaultReasoningEffort = strings.TrimSpace(cfg.Codex.DefaultReasoningEffort)

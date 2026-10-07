@@ -1,8 +1,8 @@
 # Remote Surface 核心状态机
 
 > Type: `general`
-> Updated: `2026-09-30`
-> Summary: Codex 话题与 Remote 默认模型设置；权限状态以实际授权、身份和逐操作检查为依据。
+> Updated: `2026-10-07`
+> Summary: Codex 模型默认值与前缀配置显式应用、运行时目录校验和队列冻结语义。
 > 1. visible 但 contract mismatch 的 workspace/session 仍然可见，不会再被 `/list`、`/use`、workspace recency、target picker 直接吞掉；
 > 2. 这些 mismatch 候选不会再假装“可直接接管”；
 > 3. detached `/use`、headless exact-thread restore、workspace attach、startup resume、`/mode` backend switch、`/claudeprofile`、`/codexprofile`、`/opencodeprofile` 现在都会统一先判定 `attach visible compatible / reuse managed compatible / restart managed incompatible / fresh-start matching headless / reject`，而不是各自维护平行 continuation；
@@ -2065,11 +2065,13 @@ retained-offline overlay 额外规则：
 ### Codex 话题模型设置（2026-09-25）
 
 - `SurfaceConsoleRecord.CodexPromptOverride` 独立持有当前 surface 的 model/reasoning，`PromptOverride` 保留其他 backend 与 access 语义。`/model`、`/reasoning` 的原有卡片和 slash 入口继续可用；Codex 群聊与私聊均可写当前话题，`clear` 清掉对应覆盖，不改其他话题或机器人 Profile。
-- 动态 GPT Codex Profile 支持正文前缀 `[luna]`、`[terra]`、`[sol]`、`[astra]`，依次映射 `gpt-6-luna`、`gpt-5.6-terra`、`gpt-6-sol`、`gpt-6-astra`。默认前缀强度为 `high`，可用 `[模型:low|medium|high|xhigh|max]` 指定。只剥离本条正文前缀，保留引用输入；前缀在保存成功后成为本话题后续消息的设置。
+- 动态 GPT Codex Profile 的正文前缀来自 `codex.modelPresets`，每个别名配置具体 `model/reasoningEffort`，可用 `[别名:low|medium|high|xhigh|max]` 覆盖该条强度。缺省或 `null` 兼容旧 `luna/terra/sol/astra` 映射（`sol` 为 `gpt-6-sol`，强度为 `high`）；显式映射替换整份表，`{}` 禁用前缀。只剥离本条正文前缀，保留引用输入；保存的话题覆盖是具体模型和强度，不是可变别名。
 - 普通用户 Codex turn 首次开始时，按本轮确认的模型与思考强度回复独立通知，不依赖前缀或模型覆盖；未知时明确标注未确认。重复 turn started 不重发，内部/自动任务与 review 不新增通知。最终卡片使用同一份本轮证据；队列等待提示与模型通知分离。
 - 无前缀先读取本话题显式覆盖。Codex native/OAuth headless 没有话题覆盖时，使用管理页保存的 `codex.defaultModel/defaultReasoningEffort`；两项均为空时 queue 与 dispatch 不写 model/effort，交给 Codex 原生配置。管理页修改在持久化成功后作用于后续未覆盖的请求；已排队请求保留冻结值。固定 API Profile 和 VS Code 不使用这项 Remote 默认值，VS Code 的显式话题模型与 access 独立合并，不因 access 非空而丢失模型。native thread policy 继续使用 `codex_default`，adapter 不从旧模板补模型。
+- 文件中的模型设置只在服务初始化或显式 `config apply` 时整体发布；Profile 列表刷新/OAuth 探测不顺带应用磁盘候选。管理页默认值保存只发布默认值，不消费未应用的前缀编辑。应用在 daemon 锁内完成；已运行/排队项不重写。尚未入队的 pending input 在连接恢复后解析，因此使用恢复时生效的前缀。
+- `config check` 只校验文件；`config apply` 调用本地管理 API，核对配置文件路径并只读取/应用模型设置。完整在线 native/OAuth headless 目录明确缺模型或不支持强度时拒绝；目录缺失/失败/分页或未声明强度时允许应用但返回 `unverified`。磁盘候选无效时保留当前运行快照；管理页 GET 默认值同时返回磁盘候选、当前应用值和 `pendingChanges`。更改模型配置不触发服务或 child 重启。
 - Codex `turn/start` 一旦携带协作模式，必须同时带 `settings.model`。native 默认模型从该会话实际 `thread/start/resume/fork` 返回值补齐，并保留对应推理强度；不补固定模型。无法确定当前模型时在本地报错，不发送缺字段请求或占用 remote turn。历史 `custom` 模式按当前协议发送为 `default`。
-- 前缀先校验固定 Profile 与完整有效 catalog：固定 Profile 拒绝 GPT 前缀，完整目录明确缺模型或不支持强度时拒绝，未知/分页/失败目录保持高级输入路径。入队冻结请求，后续话题修改不追改已排队内容；显式前缀队列在 dispatch 时再校验，配置漂移时取消该项、提示原因并继续后续队列，不静默换模型；取消导致队列排空时走已有 Goal interlock 的 get/fingerprint/resume 链收口本队列拥有的暂停，仍有工作时不提前恢复。
+- 前缀先校验固定 Profile 与完整有效 catalog：固定 Profile 拒绝 GPT 前缀，完整目录明确缺模型或不支持强度时拒绝，未知/分页/失败目录保持高级输入路径。入队冻结请求，后续话题修改不追改已排队内容；显式前缀队列在 dispatch 时按冻结的具体模型再校验，别名删除或重映射不影响此校验；Profile/catalog 不兼容时取消该项、提示原因并继续后续队列，不静默换模型；取消导致队列排空时走已有 Goal interlock 的 get/fingerprint/resume 链收口本队列拥有的暂停，仍有工作时不提前恢复。
 - AutoWhip 继承父项冻结的 model/effort（包括空值继承 native 默认），不读后来更改的话题选择。带前缀的 active reply 排队，避免 Steer 无法修改当前 turn 配置；普通 reply 保留原有 Steer 行为。原生 `/review` 不支持 model/effort override：话题选择与已观测 thread 不一致或无法确认时拒绝启动，提示先发普通消息再 review；固定 Profile 下忽略暂停的话题覆盖。
 - daemon 在 model/reasoning 或前缀修改进入 queue/dispatch 之前，同步写 surface resume store，成功后才改内存并输出成功结果。写失败时不消费 staged 输入、不创建 queue/active item，输出可重试错误；普通 store sync 跳过失败 surface，避免写出伪成功快照。无持久化 store 时同样拒绝修改。
 - `CodexPromptOverrideUpdatedAt` 只在显式模型设置（包括首次清空）或旧 bot 迁移时更新，非零同时表示设置存在。P2P alias 合并优先按该设置时钟选择完整 model/effort 组合，保留显式空值，不受普通 route 的 `UpdatedAt` 推进影响；加载时没有设置时钟的旧记录只在非空组合中用旧 `UpdatedAt` 兼容选择，缺字段的更新 alias 不等于 clear。旧 bot 两阶段迁移完成后，materialize/Restore 边界将非空旧组合的原 `UpdatedAt` 固定为专用设置时钟并保存；后续普通 route 更新不推进它，旧空字段保持无 presence。迁移仍先补全旧 partial 组合，不覆盖已有设置时钟的显式选择。

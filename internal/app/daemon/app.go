@@ -158,6 +158,7 @@ type App struct {
 	claudeWorkspaceProfileState   claudeWorkspaceProfileRuntimeState
 	profileContextPreferenceState profileContextPreferenceRuntimeState
 	codexRuntimeCapability        codexRuntimeCapabilityState
+	codexModelSettingsInitialized bool
 	codexOAuthProfileState        codexOAuthProfileRuntimeState
 	codexNativeConnection         codexNativeConnectionRuntimeState
 	goalInterlockRuntime          persistedStoreRuntimeState[*goalinterlockstore.Store]
