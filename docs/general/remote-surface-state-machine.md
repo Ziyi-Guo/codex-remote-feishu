@@ -2,7 +2,7 @@
 
 > Type: `general`
 > Updated: `2026-10-09`
-> Summary: Codex 话题与 Remote 默认模型设置；权限状态以实际授权、身份和逐操作检查为依据。
+> Summary: Codex 话题与 Remote 默认模型设置、私有 stdio 启动边界；权限状态以实际授权、身份和逐操作检查为依据。
 > 1. visible 但 contract mismatch 的 workspace/session 仍然可见，不会再被 `/list`、`/use`、workspace recency、target picker 直接吞掉；
 > 2. 这些 mismatch 候选不会再假装“可直接接管”；
 > 3. detached `/use`、headless exact-thread restore、workspace attach、startup resume、`/mode` backend switch、`/claudeprofile`、`/codexprofile`、`/opencodeprofile` 现在都会统一先判定 `attach visible compatible / reuse managed compatible / restart managed incompatible / fresh-start matching headless / reject`，而不是各自维护平行 continuation；
@@ -1587,6 +1587,13 @@ G1 PendingHeadlessStarting
   -- /detach --> kill headless + G0 None + R0 Detached
   -- Tick timeout --> kill headless + clear pending；thread/fresh workspace 路径按需 detach，`workspace_route_restart` / `prompt_dispatch_restart` 保留当前 workspace route
 ```
+
+Codex wrapper 与配置探测的私有启动边界（2026-10-09）：
+
+1. Codex wrapper 的真实 child 始终显式使用 stdio transport（`--listen=stdio://` 或 `--stdio` alias）；不接受 app-server 子命令、Unix/WebSocket/off transport、`--managed-daemon` 或启动时的 `--remote-control`。入口校验和真实 child 启动使用同一参数校验，直接 child launch 和 restart 也会经过该边界。
+2. `-c` 等参数的值保持原样，配置值中的子命令或 listener 文本不作为启动参数解析；`--enable` / `--disable` 同时支持 mode 前后、分离值和等号值的合法形式。Claude / OpenCode 的启动参数透传语义保持不变。
+3. 仅对 Codex child 和 native config / OAuth / capability probe 的进程环境设置 `CODEX_INTERNAL_APP_SERVER_REMOTE_CONTROL_DISABLED=1`；不改持久化偏好。三种 probe 同样显式使用 stdio，原有 `CODEX_HOME`、鉴权筛选和 capability probe 临时目录规则继续由原 owner 管理。
+4. 此边界不改变 Codex 二进制解析、升级策略、话题模型/推理覆盖或 Remote Control 用户设置；启动拒绝仍沿现有 wrapper launch failure 与 headless timeout / detach 路径收口，不增加 route gate 或持久化状态。
 
 daemon startup 的 headless resume 额外规则：
 
