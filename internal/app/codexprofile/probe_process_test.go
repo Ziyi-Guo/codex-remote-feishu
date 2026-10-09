@@ -132,6 +132,21 @@ func TestRunNativeConfigProbeAgainstRealCodex(t *testing.T) {
 	if binaryPath == "" {
 		t.Skip("CODEX_TEST_REAL_BINARY is not set")
 	}
+	// Probe a disposable home; configuration reads must not create shared daemon state.
+	codexHome := t.TempDir()
+	t.Setenv("CODEX_HOME", codexHome)
+	if err := os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte(`model_provider = "private_stdio_probe"
+[model_providers.private_stdio_probe]
+name = "Private stdio probe"
+base_url = "http://127.0.0.1:9/v1"
+wire_api = "responses"
+requires_openai_auth = false
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range ConflictingCodexAuthEnvKeys() {
+		t.Setenv(key, "")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	observation, err := RunNativeConfigProbe(ctx, NativeConfigProbeOptions{
@@ -144,6 +159,11 @@ func TestRunNativeConfigProbeAgainstRealCodex(t *testing.T) {
 	}
 	if observation.ModelProviderID == "" || !containsFold(observation.ProviderIDs, observation.ModelProviderID) {
 		t.Fatalf("native probe did not return a selected configured provider")
+	}
+	for _, path := range []string{"app-server-control/app-server-control.sock", "app-server-daemon/daemon.pid"} {
+		if _, err := os.Stat(filepath.Join(codexHome, filepath.FromSlash(path))); !os.IsNotExist(err) {
+			t.Fatalf("private probe created shared daemon state %s: %v", path, err)
+		}
 	}
 }
 
@@ -257,7 +277,7 @@ func runCodexNativeConfigProbeHelper() int {
 	if os.Getenv("CODEX_HOME") != "/production/codex-home" || os.Getenv("OPENAI_API_KEY") != "native-api-key" || os.Getenv("CODEX_ACCESS_TOKEN") != "native-access-token" {
 		return 30
 	}
-	if !sameProbeHelperArgs(os.Args[1:], []string{"app-server"}) {
+	if !sameProbeHelperArgs(os.Args[1:], []string{"app-server", "--listen=stdio://"}) || os.Getenv("CODEX_INTERNAL_APP_SERVER_REMOTE_CONTROL_DISABLED") != "1" {
 		return 31
 	}
 	cwd, err := os.Getwd()

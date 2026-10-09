@@ -40,13 +40,14 @@ func Find(args []string) (Match, bool) {
 func skipKnownCodexRootOption(args []string, index int) (int, bool) {
 	arg := args[index]
 	switch arg {
-	case "-c", "--config", "-C", "--cd":
+	case "-c", "--config", "-C", "--cd", "--enable", "--disable":
 		if index+1 >= len(args) {
 			return 0, false
 		}
 		return index + 2, true
 	default:
-		if hasRootOptionValue(arg, "--config=") || hasRootOptionValue(arg, "--cd=") {
+		if hasRootOptionValue(arg, "--config=") || hasRootOptionValue(arg, "--cd=") ||
+			hasRootOptionValue(arg, "--enable=") || hasRootOptionValue(arg, "--disable=") {
 			return index + 1, true
 		}
 		return 0, false

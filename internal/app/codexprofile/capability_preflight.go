@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/kxn/codex-remote-feishu/internal/app/appserverargs"
 	"github.com/kxn/codex-remote-feishu/internal/execlaunch"
 )
 
@@ -41,6 +42,7 @@ func CapabilityPreflightLaunchMaterial(baseEnv []string, codexHome string) Probe
 	return ProbeLaunchMaterial{
 		Args: []string{
 			"app-server",
+			"--listen=stdio://",
 			"-c", codexOverride("model_provider", capabilityProbeProviderID),
 			"-c", codexOverride("model", capabilityProbeModel),
 			"-c", codexOverride("review_model", capabilityProbeReviewModel),
@@ -55,7 +57,7 @@ func CapabilityPreflightLaunchMaterial(baseEnv []string, codexHome string) Probe
 			"-c", prefix + ".supports_websockets=false",
 			"-c", codexOverride("cli_auth_credentials_store", "ephemeral"),
 		},
-		Env: env,
+		Env: appserverargs.PrivateStdioEnv(env),
 	}
 }
 

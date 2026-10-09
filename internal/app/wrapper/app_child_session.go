@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kxn/codex-remote-feishu/internal/adapter/relayws"
+	"github.com/kxn/codex-remote-feishu/internal/app/appserverargs"
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
 	"github.com/kxn/codex-remote-feishu/internal/debuglog"
 	"github.com/kxn/codex-remote-feishu/internal/execlaunch"
@@ -34,8 +35,13 @@ type childSession struct {
 }
 
 func (a *App) launchCodexChildSession(ctx context.Context, rawLogger *debuglog.RawLogger, reportProblem func(agentproto.ErrorInfo)) (*childSession, error) {
+	privateArgs, err := appserverargs.PrivateStdioArgs(a.config.Args)
+	if err != nil {
+		return nil, err
+	}
 	childCtx, childCancel := context.WithCancel(ctx)
-	childArgs, childEnv := a.buildCodexChildLaunch(a.config.Args)
+	childArgs, childEnv := a.buildCodexChildLaunch(privateArgs)
+	childEnv = appserverargs.PrivateStdioEnv(childEnv)
 	cmd := execlaunch.CommandContext(childCtx, a.config.CodexRealBinary, childArgs...)
 	cmd.Stdin = nil
 	cmd.Stdout = nil
