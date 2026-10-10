@@ -1,8 +1,8 @@
 # Feishu Card Content Context Guidelines
 
 > Type: `general`
-> Updated: `2026-04-21`
-> Summary: 补充“需求描述 -> 分层落点 -> Markdown 处理”的决策规范，明确这类代码应把格式职责放在 adapter 最后一跳渲染。
+> Updated: `2026-10-10`
+> Summary: 明确 final Markdown 图片的 IM 上传、image_key 渲染与失败降级边界，避免将文件预览 URL 当成图片 key。
 
 ## 1. 文档定位
 
@@ -114,6 +114,12 @@ orchestrator / control / daemon 层负责表达业务语义与结构，不负责
 ### 4.7 final reply markdown 是特例，不外溢
 
 final reply 当前有专门的 markdown normalize 与 preview rewrite 链路。
+
+final Markdown 的 `![描述](本地文件)` 与普通文件链接具有不同交付语义：preview handler 仍沿用现有 canonical path、允许根目录与文件大小校验；PNG/JPEG/GIF/WEBP 额外检查内容签名及 10 MiB 上传上限，再由当前 gateway 的 SDK broker 调用 `im.v1.image.create`（`image_type=message`）。只有返回符合 `img_` key 格式的结果，才保留图片语法。同 gateway、scope、canonical path、内容 hash 在当前 previewer 生命周期内复用成功 key，并复用现有并发去重入口；不新增持久化格式，重建 previewer 后重新上传。
+
+图片上传不可用、失败、文件未获路径授权、格式不支持或外链图片，均保留描述并说明“图片未能内嵌”；已有文件预览或 HTTP(S) URL 可作为普通链接展示，本地目标作为文字保留。不得任意抓取外链，也不得将 localhost、文件预览 URL、data URL 或本地路径留在 `![](...)` 中。final renderer 同样执行这条边界，因此 preview 未配置或超时也不能令一张无效图片破坏整条回复。代码块和 inline code 中的图片示例保持原样，普通文件链接交付保持不变。
+
+平台接口：[上传图片](https://open.feishu.cn/document/server-docs/im-v1/image/create)、[卡片 Markdown](https://open.feishu.cn/document/feishu-cards/card-json-v2-components/content-components/rich-text)。本地测试覆盖上传成功、同目标去重、并发、失败降级、路径授权、空格/角括号目标、SDK 请求与最终 renderer；真实飞书卡片显示仍需部署后验收。
 
 这条能力只能服务 final answer / final card，不应直接复制成：
 

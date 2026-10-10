@@ -3,6 +3,7 @@ package feishu
 import (
 	"strings"
 
+	"github.com/kxn/codex-remote-feishu/internal/adapter/feishu/preview"
 	"github.com/kxn/codex-remote-feishu/internal/core/markdown"
 )
 
@@ -180,6 +181,17 @@ func renderFinalCardMarkdownInline(text string) string {
 			}
 			if ok {
 				out.WriteString(text[i:end])
+				i = end
+				continue
+			}
+		}
+		if text[i] == '!' && i+1 < len(text) && text[i+1] == '[' {
+			if end, label, target, ok := markdown.ParseMarkdownLinkAt(text, i+1); ok {
+				if preview.IsCardImageKey(target) {
+					out.WriteString(text[i:end])
+				} else {
+					out.WriteString(preview.RenderCardImageFallback(label, target))
+				}
 				i = end
 				continue
 			}

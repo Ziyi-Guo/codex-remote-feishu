@@ -287,6 +287,17 @@ func (p *DriveMarkdownPreviewer) rewriteMarkdownLinksPlain(
 	)
 	last := 0
 	for i := 0; i < len(text); {
+		if text[i] == '!' && i+1 < len(text) && text[i+1] == '[' {
+			if end, label, target, ok := markdown.ParseMarkdownLinkAt(text, i+1); ok {
+				builder.WriteString(text[last:i])
+				rewritten, imageErrs := p.rewriteMarkdownImage(ctx, req, principals, runtime, scopeKey, rewrittenTargets, label, target, baseOffset+i)
+				builder.WriteString(rewritten)
+				changed = changed || rewritten != text[i:end]
+				errs = append(errs, imageErrs...)
+				i, last = end, end
+				continue
+			}
+		}
 		if text[i] == '[' {
 			end, label, rawTarget, ok := markdown.ParseMarkdownLinkAt(text, i)
 			if ok {
@@ -699,6 +710,9 @@ func (h markdownFilePreviewHandler) Plan(_ context.Context, req FinalBlockPrevie
 		deliveries = append([]PreviewDeliveryPlan{{
 			Kind: PreviewDeliveryDriveFileLink,
 		}}, deliveries...)
+	}
+	if ref.Image && artifactKind == "image" {
+		deliveries = append([]PreviewDeliveryPlan{{Kind: PreviewDeliveryIMImage}}, deliveries...)
 	}
 	return &PreviewPlan{
 		HandlerID: h.ID(),

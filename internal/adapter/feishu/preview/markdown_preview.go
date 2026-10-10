@@ -50,6 +50,7 @@ type DriveMarkdownPreviewer struct {
 	maintenanceMu sync.Mutex
 	inflightMu    sync.Mutex
 	inflightOps   map[string]*previewOpCall
+	imageKeys     map[string]string
 	loaded        bool
 	state         *previewState
 	nowFn         func() time.Time
@@ -180,6 +181,7 @@ func NewDriveMarkdownPreviewer(api previewDriveAPI, cfg MarkdownPreviewConfig) *
 	}
 	previewer.RegisterHandler(markdownFilePreviewHandler{previewer: previewer})
 	previewer.RegisterPublisher(driveMarkdownLinkPublisher{previewer: previewer})
+	previewer.RegisterPublisher(imImagePreviewPublisher{previewer: previewer})
 	previewer.RegisterPublisher(webPreviewLinkPublisher{previewer: previewer})
 	return previewer
 }

@@ -28,6 +28,10 @@ func NewLarkDrivePreviewAPI(gatewayID string, client *lark.Client) previewpkg.Dr
 	}
 }
 
+func (a *larkDrivePreviewAPI) UploadImage(ctx context.Context, content []byte) (string, error) {
+	return uploadFeishuImageBytes(ctx, a.broker, content)
+}
+
 func (a *larkDrivePreviewAPI) CreateFolder(ctx context.Context, name, parentToken string) (previewpkg.RemoteNode, error) {
 	resp, err := DoSDK(ctx, a.broker, CallSpec{
 		API:      "drive.v1.file.create_folder",

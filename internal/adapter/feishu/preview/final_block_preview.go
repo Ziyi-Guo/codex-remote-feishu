@@ -61,6 +61,7 @@ func (l PreviewLocation) FragmentID() string {
 
 type PreviewReference struct {
 	RawTarget   string
+	Image       bool
 	TargetStart int
 	TargetEnd   int
 	Location    PreviewLocation
@@ -88,6 +89,7 @@ type PreviewDeliveryKind string
 const (
 	PreviewDeliveryDriveFileLink PreviewDeliveryKind = "drive_file_link"
 	PreviewDeliveryWebFileLink   PreviewDeliveryKind = "web_file_link"
+	PreviewDeliveryIMImage       PreviewDeliveryKind = "im_image"
 )
 
 type PreviewDeliveryPlan struct {
@@ -98,13 +100,15 @@ type PreviewDeliveryPlan struct {
 type PreviewPublishMode string
 
 const (
-	PreviewPublishModeInlineLink PreviewPublishMode = "inline_link"
+	PreviewPublishModeInlineLink  PreviewPublishMode = "inline_link"
+	PreviewPublishModeInlineImage PreviewPublishMode = "inline_image"
 )
 
 type PreviewPublishResult struct {
 	PublisherID string
 	Mode        PreviewPublishMode
 	URL         string
+	ImageKey    string
 }
 
 type PreviewPublishRequest struct {

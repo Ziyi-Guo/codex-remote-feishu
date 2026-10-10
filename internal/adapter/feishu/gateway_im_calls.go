@@ -83,8 +83,11 @@ func (g *LiveGateway) uploadImagePath(ctx context.Context, path string) (string,
 }
 
 func (g *LiveGateway) uploadImageBytes(ctx context.Context, data []byte) (string, error) {
-	resp, err := DoSDK(ctx, g.broker, CallSpec{
-		GatewayID:  g.config.GatewayID,
+	return uploadFeishuImageBytes(ctx, g.broker, data)
+}
+
+func uploadFeishuImageBytes(ctx context.Context, broker *FeishuCallBroker, data []byte) (string, error) {
+	resp, err := DoSDK(ctx, broker, CallSpec{
 		API:        "im.v1.image.create",
 		Class:      CallClassIMSend,
 		Priority:   CallPriorityInteractive,
