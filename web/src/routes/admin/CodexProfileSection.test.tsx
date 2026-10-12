@@ -24,7 +24,7 @@ describe("CodexProfileSection", () => {
     await user.click(screen.getByRole("button", { name: "保存默认模型" }));
     expect(calls.some((call) => call.path === "/api/admin/codex/default-model" && call.method === "PUT" &&
       JSON.parse(String(call.init?.body)).model === "gpt-6-luna")).toBe(true);
-    expect(await screen.findByText("默认模型已保存。" )).toBeInTheDocument();
+    expect(await screen.findByText("默认模型已保存并应用。" )).toBeInTheDocument();
   });
   it("uses canonical profile APIs, etags, review model, and context preference", async () => {
     const user = userEvent.setup();

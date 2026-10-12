@@ -14,7 +14,9 @@ func (a *App) syncCodexProfilesCatalogLocked(cfg config.AppConfig) {
 		return
 	}
 	a.service.MaterializeCodexProfiles(a.materializeCodexProfileSummariesLocked(cfg))
-	a.service.SetCodexRemoteDefault(cfg.Codex.DefaultModel, cfg.Codex.DefaultReasoningEffort)
+	if !a.codexModelSettingsInitialized {
+		a.publishCodexModelSettingsLocked(cfg.Codex)
+	}
 }
 
 func (a *App) syncCodexProfilesCatalogFromConfig() {
