@@ -1,8 +1,8 @@
 # Remote Surface 核心状态机
 
 > Type: `general`
-> Updated: `2026-10-07`
-> Summary: Codex 模型默认值与前缀配置显式应用、运行时目录校验和队列冻结语义。
+> Updated: `2026-10-12`
+> Summary: Codex 模型默认值与前缀配置显式应用、运行时目录校验和队列冻结语义；权限状态以实际授权、身份和逐操作检查为依据。
 > 1. visible 但 contract mismatch 的 workspace/session 仍然可见，不会再被 `/list`、`/use`、workspace recency、target picker 直接吞掉；
 > 2. 这些 mismatch 候选不会再假装“可直接接管”；
 > 3. detached `/use`、headless exact-thread restore、workspace attach、startup resume、`/mode` backend switch、`/claudeprofile`、`/codexprofile`、`/opencodeprofile` 现在都会统一先判定 `attach visible compatible / reuse managed compatible / restart managed incompatible / fresh-start matching headless / reject`，而不是各自维护平行 continuation；
@@ -407,7 +407,7 @@ thread 自身现在还有一层**authoritative runtime status overlay**，来源
    1. `thread/archived` / `thread/unarchived` 只更新 `ThreadRecord.Archived`，影响列表可见性；不会立即 detach surface。
    2. `thread/deleted` 会把命中该 thread 的 attached surface 清到 `R1 AttachedUnbound`，释放 thread claim，避免下一条输入继续发到已删除 thread；instance / workspace attachment 仍保留。
    3. `thread/closed` 只通过 `RuntimeStatus=notLoaded` 表达 upstream unload，不会 detach surface，也不会清空当前 selection；后续 `/use` / 恢复仍按 notLoaded 规则处理。
-   4. `thread/goal/*` 与 `thread/settings/updated` 只保存 latest state，不参与 route gate，不生成 Feishu 主链消息。
+   4. `thread/goal/*` 与 `thread/settings/updated` 只保存 latest state，不参与 route gate，不生成 Feishu 主链消息。原生设置通知优先读取 `params.threadSettings`，兼容旧 `params.settings` 与直接字段形式；其中 `effort` / `collaborationMode.settings.reasoning_effort` 是服务端观测值，可供随后 turn 的模型通知和最终标签冻结，不能用请求 override 代替。
 
 ### 3.3 执行状态
 
