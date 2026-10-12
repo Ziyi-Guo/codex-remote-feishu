@@ -128,7 +128,7 @@ func TestParseCodexMessagePreset(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			clean, preset, explicit, err := parseCodexMessagePreset(tt.text)
+			clean, preset, explicit, err := parseCodexMessagePreset(tt.text, nil)
 			if clean != tt.wantClean {
 				t.Fatalf("clean = %q, want %q", clean, tt.wantClean)
 			}
@@ -142,12 +142,6 @@ func TestParseCodexMessagePreset(t *testing.T) {
 				t.Fatalf("err = %v, wantErr %t", err, tt.wantErr)
 			}
 		})
-	}
-}
-
-func TestValidCodexMessagePreset(t *testing.T) {
-	if !validCodexMessagePreset("astra") {
-		t.Fatal("astra must pass the frozen-preset dispatch guard")
 	}
 }
 
@@ -523,7 +517,7 @@ func TestCodexMessagePresetParserErrorReturnsNoticeWithoutEnqueue(t *testing.T) 
 	surface := svc.root.Surfaces["surface-1"]
 	events := svc.ApplySurfaceAction(control.Action{Kind: control.ActionTextMessage, SurfaceSessionID: surface.SurfaceSessionID, MessageID: "msg-empty", Text: "[sol]"})
 	if len(surface.QueueItems) != 0 || len(events) != 1 || events[0].Notice == nil || !strings.Contains(events[0].Notice.Text, "不能为空") ||
-		!strings.Contains(events[0].Notice.Text, "[luna]") || !strings.Contains(events[0].Notice.Text, "[terra]") || !strings.Contains(events[0].Notice.Text, "[sol]") || !strings.Contains(events[0].Notice.Text, "[astra]") {
+		!strings.Contains(events[0].Notice.Text, "[别名]") {
 		t.Fatalf("parser error result = items %#v events %#v", surface.QueueItems, events)
 	}
 }

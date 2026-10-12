@@ -44,6 +44,7 @@ type PrimaryBotPermissionDecision struct {
 type Service struct {
 	persistCodexTopicOverride func(*state.SurfaceConsoleRecord) error
 	codexRemoteDefault        state.CodexPromptOverrideRecord
+	codexModelPresets         map[string]state.CodexPromptOverrideRecord
 	now                       func() time.Time
 	config                    Config
 	root                      *state.Root

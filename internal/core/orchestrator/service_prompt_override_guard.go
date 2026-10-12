@@ -18,17 +18,8 @@ type promptOverrideGuardResult struct {
 	SupportedEfforts []string
 }
 
-func validCodexMessagePreset(value string) bool {
-	switch value {
-	case "luna", "terra", "sol", "astra":
-		return true
-	default:
-		return false
-	}
-}
-
 func (s *Service) codexMessagePresetDispatchGuard(surface *state.SurfaceConsoleRecord, item *state.QueueItemRecord) (promptOverrideGuardResult, string, bool) {
-	if item == nil || !validCodexMessagePreset(item.CodexMessagePreset) {
+	if item == nil || strings.TrimSpace(item.CodexMessagePreset) == "" {
 		return promptOverrideGuardResult{}, "", false
 	}
 	inst := s.root.Instances[surface.AttachedInstanceID]
