@@ -154,90 +154,96 @@ func decodeBase64Image(value string) ([]byte, error) {
 }
 
 func (g *LiveGateway) createMessage(ctx context.Context, receiveIDType, receiveID, msgType, content string) (*larkim.CreateMessageResp, error) {
-	return DoSDK(ctx, g.broker, CallSpec{
-		GatewayID: g.config.GatewayID,
-		API:       "im.v1.message.create",
-		Class:     CallClassIMSend,
-		Priority:  CallPriorityInteractive,
-		ResourceKey: FeishuResourceKey{
-			ReceiveTarget: joinReceiveTarget(receiveIDType, receiveID),
-		},
-		Retry:      RetryRateLimitOnly,
-		Permission: PermissionCooldownOnly,
-	}, func(callCtx context.Context, client *lark.Client) (*larkim.CreateMessageResp, error) {
-		resp, err := client.Im.V1.Message.Create(callCtx, larkim.NewCreateMessageReqBuilder().
-			ReceiveIdType(receiveIDType).
-			Body(larkim.NewCreateMessageReqBodyBuilder().
-				ReceiveId(receiveID).
-				MsgType(msgType).
-				Content(content).
-				Build()).
-			Build())
-		if err != nil {
-			return resp, err
-		}
-		if !resp.Success() {
-			return resp, newAPIError("im.v1.message.create", resp.ApiResp, resp.CodeError)
-		}
-		return resp, nil
+	return withMessageEmailRedaction(g.config.GatewayID, "im.v1.message.create", content, func(content string) (*larkim.CreateMessageResp, error) {
+		return DoSDK(ctx, g.broker, CallSpec{
+			GatewayID: g.config.GatewayID,
+			API:       "im.v1.message.create",
+			Class:     CallClassIMSend,
+			Priority:  CallPriorityInteractive,
+			ResourceKey: FeishuResourceKey{
+				ReceiveTarget: joinReceiveTarget(receiveIDType, receiveID),
+			},
+			Retry:      RetryRateLimitOnly,
+			Permission: PermissionCooldownOnly,
+		}, func(callCtx context.Context, client *lark.Client) (*larkim.CreateMessageResp, error) {
+			resp, err := client.Im.V1.Message.Create(callCtx, larkim.NewCreateMessageReqBuilder().
+				ReceiveIdType(receiveIDType).
+				Body(larkim.NewCreateMessageReqBodyBuilder().
+					ReceiveId(receiveID).
+					MsgType(msgType).
+					Content(content).
+					Build()).
+				Build())
+			if err != nil {
+				return resp, err
+			}
+			if !resp.Success() {
+				return resp, newAPIError("im.v1.message.create", resp.ApiResp, resp.CodeError)
+			}
+			return resp, nil
+		})
 	})
 }
 
 func (g *LiveGateway) replyMessage(ctx context.Context, messageID, msgType, content string, replyInThread bool) (*larkim.ReplyMessageResp, error) {
-	return DoSDK(ctx, g.broker, CallSpec{
-		GatewayID: g.config.GatewayID,
-		API:       "im.v1.message.reply",
-		Class:     CallClassIMSend,
-		Priority:  CallPriorityInteractive,
-		ResourceKey: FeishuResourceKey{
-			MessageID: messageID,
-		},
-		Retry:      RetryRateLimitOnly,
-		Permission: PermissionCooldownOnly,
-	}, func(callCtx context.Context, client *lark.Client) (*larkim.ReplyMessageResp, error) {
-		resp, err := client.Im.V1.Message.Reply(callCtx, larkim.NewReplyMessageReqBuilder().
-			MessageId(messageID).
-			Body(larkim.NewReplyMessageReqBodyBuilder().
-				MsgType(msgType).
-				Content(content).
-				ReplyInThread(replyInThread).
-				Build()).
-			Build())
-		if err != nil {
-			return resp, err
-		}
-		if !resp.Success() {
-			return resp, newAPIError("im.v1.message.reply", resp.ApiResp, resp.CodeError)
-		}
-		return resp, nil
+	return withMessageEmailRedaction(g.config.GatewayID, "im.v1.message.reply", content, func(content string) (*larkim.ReplyMessageResp, error) {
+		return DoSDK(ctx, g.broker, CallSpec{
+			GatewayID: g.config.GatewayID,
+			API:       "im.v1.message.reply",
+			Class:     CallClassIMSend,
+			Priority:  CallPriorityInteractive,
+			ResourceKey: FeishuResourceKey{
+				MessageID: messageID,
+			},
+			Retry:      RetryRateLimitOnly,
+			Permission: PermissionCooldownOnly,
+		}, func(callCtx context.Context, client *lark.Client) (*larkim.ReplyMessageResp, error) {
+			resp, err := client.Im.V1.Message.Reply(callCtx, larkim.NewReplyMessageReqBuilder().
+				MessageId(messageID).
+				Body(larkim.NewReplyMessageReqBodyBuilder().
+					MsgType(msgType).
+					Content(content).
+					ReplyInThread(replyInThread).
+					Build()).
+				Build())
+			if err != nil {
+				return resp, err
+			}
+			if !resp.Success() {
+				return resp, newAPIError("im.v1.message.reply", resp.ApiResp, resp.CodeError)
+			}
+			return resp, nil
+		})
 	})
 }
 
 func (g *LiveGateway) patchMessage(ctx context.Context, messageID, content string) (*larkim.PatchMessageResp, error) {
-	return DoSDK(ctx, g.broker, CallSpec{
-		GatewayID: g.config.GatewayID,
-		API:       "im.v1.message.patch",
-		Class:     CallClassIMPatch,
-		Priority:  CallPriorityInteractive,
-		ResourceKey: FeishuResourceKey{
-			MessageID: messageID,
-		},
-		Retry:      RetrySafe,
-		Permission: PermissionCooldownOnly,
-	}, func(callCtx context.Context, client *lark.Client) (*larkim.PatchMessageResp, error) {
-		resp, err := client.Im.V1.Message.Patch(callCtx, larkim.NewPatchMessageReqBuilder().
-			MessageId(messageID).
-			Body(larkim.NewPatchMessageReqBodyBuilder().
-				Content(content).
-				Build()).
-			Build())
-		if err != nil {
-			return resp, err
-		}
-		if !resp.Success() {
-			return resp, newAPIError("im.v1.message.patch", resp.ApiResp, resp.CodeError)
-		}
-		return resp, nil
+	return withMessageEmailRedaction(g.config.GatewayID, "im.v1.message.patch", content, func(content string) (*larkim.PatchMessageResp, error) {
+		return DoSDK(ctx, g.broker, CallSpec{
+			GatewayID: g.config.GatewayID,
+			API:       "im.v1.message.patch",
+			Class:     CallClassIMPatch,
+			Priority:  CallPriorityInteractive,
+			ResourceKey: FeishuResourceKey{
+				MessageID: messageID,
+			},
+			Retry:      RetrySafe,
+			Permission: PermissionCooldownOnly,
+		}, func(callCtx context.Context, client *lark.Client) (*larkim.PatchMessageResp, error) {
+			resp, err := client.Im.V1.Message.Patch(callCtx, larkim.NewPatchMessageReqBuilder().
+				MessageId(messageID).
+				Body(larkim.NewPatchMessageReqBodyBuilder().
+					Content(content).
+					Build()).
+				Build())
+			if err != nil {
+				return resp, err
+			}
+			if !resp.Success() {
+				return resp, newAPIError("im.v1.message.patch", resp.ApiResp, resp.CodeError)
+			}
+			return resp, nil
+		})
 	})
 }
 

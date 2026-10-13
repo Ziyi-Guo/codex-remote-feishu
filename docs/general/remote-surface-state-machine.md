@@ -1,8 +1,8 @@
 # Remote Surface 核心状态机
 
 > Type: `general`
-> Updated: `2026-10-12`
-> Summary: Codex 模型默认值与前缀配置显式应用、运行时目录校验和队列冻结语义；权限状态以实际授权、身份和逐操作检查为依据。
+> Updated: `2026-10-13`
+> Summary: 飞书内容审核拒绝与链路失败分离，邮箱移除后限定单次重发，失败 notice 不递归入队。
 > 1. visible 但 contract mismatch 的 workspace/session 仍然可见，不会再被 `/list`、`/use`、workspace recency、target picker 直接吞掉；
 > 2. 这些 mismatch 候选不会再假装“可直接接管”；
 > 3. detached `/use`、headless exact-thread restore、workspace attach、startup resume、`/mode` backend switch、`/claudeprofile`、`/codexprofile`、`/opencodeprofile` 现在都会统一先判定 `attach visible compatible / reuse managed compatible / restart managed incompatible / fresh-start matching headless / reject`，而不是各自维护平行 continuation；
@@ -1775,6 +1775,7 @@ transport degraded retained attachment
    2. `attached_instance_transport_degraded` 当前按 `surface + family + code` 做短窗节流，避免离线抖动时连续刷同一张系统提示
    3. `daemon_shutting_down` 当前仍是一轮 shutdown 里每 surface 最多一条，并附带较长 dedupe 窗口
    4. `gateway_apply_failed` 当前会先排入 daemon 的 pending runtime notice 队列，待下一次正常 gateway apply 成功前置冲刷；同 surface 同 family 的重复错误会按 dedupe key 收敛
+   5. 飞书 `230028` 内容拒绝单独使用 `feishu_content_audit_rejected` dedupe key，提示“消息未通过飞书内容审核”，明确原样重试无效。仅 `EMAIL_ADDRESS` 在 gateway 移除 JSON 显示文本中的邮箱后重发一次；不能安全移除或仍被拒绝时，不重发原文、不改变 queue/turn 归属。失败 notice 不再递归入队，后续正常输出仍可推进。
 12. 因此，后续若新增真正属于 runtime 层的提示，默认应进入这条独立车道，而不是继续直接手写普通 `UIEventNotice`。
 
 ## 6. 命令矩阵

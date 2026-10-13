@@ -9,6 +9,7 @@ import (
 	"github.com/kxn/codex-remote-feishu/internal/adapter/feishu"
 	previewpkg "github.com/kxn/codex-remote-feishu/internal/adapter/feishu/preview"
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
+	"github.com/kxn/codex-remote-feishu/internal/core/control"
 	"github.com/kxn/codex-remote-feishu/internal/core/eventcontract"
 	"github.com/kxn/codex-remote-feishu/internal/core/orchestrator"
 	"github.com/kxn/codex-remote-feishu/internal/core/render"
@@ -516,10 +517,10 @@ func (a *App) queueGatewayFailureNotice(event eventcontract.Event, err error) {
 			err,
 		)
 	}
-	if event.Notice != nil && event.Notice.Code == "gateway_apply_failed" {
+	if event.Notice != nil && (event.Notice.Code == "gateway_apply_failed" || event.Notice.DeliveryFamily == control.NoticeDeliveryFamilyGatewayApplyFailure) {
 		return
 	}
-	notice := orchestrator.GlobalRuntimeGatewayApplyFailureNotice(agentproto.ErrorInfoFromError(err, agentproto.ErrorInfo{
+	problem := agentproto.ErrorInfoFromError(err, agentproto.ErrorInfo{
 		Code:             "gateway_apply_failed",
 		Layer:            "daemon",
 		Stage:            "gateway_apply",
@@ -527,7 +528,17 @@ func (a *App) queueGatewayFailureNotice(event eventcontract.Event, err error) {
 		Message:          "服务无法把消息发送到飞书。",
 		SurfaceSessionID: event.SurfaceSessionID,
 		Retryable:        true,
-	}))
+	})
+	if feishu.IsContentAuditRejection(err) {
+		problem.Code = "feishu_content_audit_rejected"
+		problem.Message = "飞书内容审核拒绝了这条消息。原样重试无效，需要移除敏感信息后重新发送；本机原文保留。"
+		problem.Retryable = false
+	}
+	notice := orchestrator.GlobalRuntimeGatewayApplyFailureNotice(problem)
+	if feishu.IsContentAuditRejection(err) {
+		notice.Title = "消息未通过飞书内容审核"
+		notice.Sections[0].Lines = append(notice.Sections[0].Lines, "可重试：否")
+	}
 	a.queueGlobalRuntimeNoticeLocked(eventcontract.Event{
 		Kind:             eventcontract.KindNotice,
 		SurfaceSessionID: event.SurfaceSessionID,

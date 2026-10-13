@@ -1,8 +1,8 @@
 # Feishu 卡片 UI 状态机
 
 > Type: `general`
-> Updated: `2026-10-09`
-> Summary: 本轮模型与思考强度展示解析原生 threadSettings 设置确认，运行证据在 turn 开始时绑定，未知值保持省略。
+> Updated: `2026-10-13`
+> Summary: 邮箱审核拒绝仅移除显示文本，保留 callback、链接、路由和卡片交互语义。
 
 ## 1. 文档定位
 
@@ -453,6 +453,8 @@ MCP request 卡片当前新增的可视语义：
 群话题 surface 的文字、卡片与图片回复，以及目标仍为同群的工具图片/文件/视频发送，通过原消息 `message.reply` 并设置 `reply_in_thread=true`。未指定回复锚点时使用 gateway 已记录的同 surface 消息 ID（包括命令入站、有效卡片 callback 和成功出站），不把 `thread_id` 当作 `message_id`；缺少已知锚点或回复失败直接返回错误，不使用 `message.create` 发到群主聊天；显式发往其他聊天的工具媒体保持指定目标并创建独立消息，不更新来源话题的消息映射或回复锚点。私聊及旧群级 surface 保持既有回复与 fallback 行为。
 
 ## 5. 当前同步 Replace 与 Append 边界
+
+飞书 IM create/reply/patch 若返回 `230028 / EMAIL_ADDRESS`，仅 JSON 显示文本移除完整邮箱并标记 `[邮箱地址已移除]`，再发送一次。callback `value`、link target、routing/owner/freshness 字段均不改写；若其中仍含邮箱，则保留拒绝，不伪造可用按钮或链接。该处理不改变 replace/append 判断。剩余内容拒绝沿已有 global runtime gateway-failure 车道追加“消息未通过飞书内容审核”，明确不可原样重试；失败 notice 不递归生成 notice。
 
 ### 5.1 同步 replace 的必要条件
 

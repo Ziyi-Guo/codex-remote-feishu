@@ -1,8 +1,8 @@
 # Relay Error Reporting Protocol
 
 > Type: `general`
-> Updated: `2026-04-09`
-> Summary: 说明 relay 链路错误如何回传到 Feishu，并区分 gateway apply 失败与 final preview rewrite 降级。
+> Updated: `2026-10-13`
+> Summary: 区分飞书内容审核拒绝与可重试的链路失败，限定邮箱移除后的单次重发。
 
 ## Goal
 
@@ -80,6 +80,14 @@ Best-effort fallback:
 - on the next successful outbound event for that surface, daemon flushes the queued debug notice first
 
 This does not guarantee visibility during a total Feishu outage, but it removes the common “one send failed and nothing was visible later” problem.
+
+### Content audit rejection
+
+Feishu `230028` is a content rejection, not an unavailable transport or missing API permission. When IM create/reply/patch returns this code with `EMAIL_ADDRESS`, the gateway removes complete email addresses from JSON display text and resubmits once through the existing call broker. Normal successful messages are unchanged. The replacement is visibly marked `[邮箱地址已移除]`; the source message and local transcript are not rewritten. No address is disguised, encoded, or sent through another channel.
+
+Interactive action values, link targets, identifiers, and routing fields are not rewritten. Malformed JSON, content with no removable display address, or payloads that still contain an address after display redaction are not resubmitted. Other audit categories receive no automatic content retry.
+
+If rejection persists, daemon queues a `feishu_content_audit_rejected` notice in the existing gateway-failure family, titled `消息未通过飞书内容审核`, with `retryable=false` and an instruction to remove sensitive information. It deduplicates by that code, does not recursively report a failed gateway-failure notice, and leaves transport retry behavior unchanged.
 
 ## Current Instrumented Failure Points
 
