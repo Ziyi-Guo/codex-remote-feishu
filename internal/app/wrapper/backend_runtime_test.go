@@ -13,6 +13,20 @@ import (
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
 )
 
+func TestLimitedGroupsRuntimeDoesNotEnumerateOwnerThreads(t *testing.T) {
+	for _, restricted := range []bool{false, true} {
+		value := ""
+		if restricted {
+			value = "1"
+		}
+		t.Setenv("CODEX_REMOTE_LIMITED_GROUP", value)
+		r := newBackendRuntime(Config{Backend: agentproto.BackendCodex, InstanceID: "private-wrapper"})
+		if got := r.Capabilities().ThreadsRefresh; got == restricted {
+			t.Fatalf("restricted=%v: global thread enumeration capability=%v", restricted, got)
+		}
+	}
+}
+
 func TestNewBackendRuntimeOpenCodeDoesNotFallBackToCodex(t *testing.T) {
 	runtime := newBackendRuntime(Config{
 		Backend:       agentproto.BackendOpenCode,

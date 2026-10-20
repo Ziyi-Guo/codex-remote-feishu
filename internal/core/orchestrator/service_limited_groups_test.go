@@ -19,6 +19,26 @@ func limitedServicePolicy(t *testing.T) *limitedgroups.ExecutionPolicy {
 	return &limitedgroups.ExecutionPolicy{OwnerUserID: "ou_owner", Workspace: filepath.Join(root, "source"), Workdir: filepath.Join(root, "work"), OutputDir: filepath.Join(root, "work", "output")}
 }
 
+func TestLimitedGroupsDiscoveryKeepsProjectionWithoutGlobalRefresh(t *testing.T) {
+	now := time.Now()
+	svc := newServiceForTest(&now)
+	p := limitedServicePolicy(t)
+	svc.UpsertInstance(&state.InstanceRecord{InstanceID: "private-wrapper", WorkspaceRoot: p.Workdir, WorkspaceKey: p.Workdir, Online: true, Managed: true, Backend: agentproto.BackendCodex, CapabilitiesDeclared: true, Capabilities: agentproto.Capabilities{ThreadsRefresh: true, LimitedGroups: true}, Threads: map[string]*state.ThreadRecord{}})
+	svc.ApplySurfaceAction(control.Action{Kind: control.ActionAttachInstance, SurfaceSessionID: "surface-limited", InstanceID: "private-wrapper", ChatID: "oc_limited", ActorUserID: "ou_owner"})
+	surface := svc.root.Surfaces["surface-limited"]
+	surface.LimitedExecution = p
+	events := svc.ApplyAgentEvent("private-wrapper", agentproto.Event{Kind: agentproto.EventThreadDiscovered, ThreadID: "new-private-thread", CWD: p.Workdir, FocusSource: "remote_created_thread"})
+	for _, c := range limitedServiceCommands(events) {
+		if c.Kind == agentproto.CommandThreadsRefresh {
+			t.Fatal("private discovery attempted owner thread/list")
+		}
+	}
+	thread := svc.root.Instances["private-wrapper"].Threads["new-private-thread"]
+	if thread == nil || thread.CWD != p.Workdir || !thread.Loaded || surface.AttachedInstanceID != "private-wrapper" {
+		t.Fatal("private thread projection or binding was lost")
+	}
+}
+
 func limitedServiceRequest(t *testing.T, kind string) (*Service, *state.SurfaceConsoleRecord, *limitedgroups.ExecutionPolicy) {
 	t.Helper()
 	now := time.Date(2026, 10, 20, 1, 0, 0, 0, time.UTC)

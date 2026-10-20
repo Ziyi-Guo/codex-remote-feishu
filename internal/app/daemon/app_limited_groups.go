@@ -146,5 +146,6 @@ func limitedHeadlessEnv(surfaceID string, env []string, configuredBinary string)
 	}
 	// The macOS sandbox helper re-execs argv[0]; a symlink outside its allowed
 	// runtime root fails even when the canonical binary is available.
-	return config.UpsertEnvValue(env, config.CodexRealBinaryEnv, path), nil
+	env = config.UpsertEnvValue(env, config.CodexRealBinaryEnv, path)
+	return config.UpsertEnvValue(env, limitedgroups.ProcessEnv, "1"), nil
 }

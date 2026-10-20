@@ -12,6 +12,7 @@ import (
 var configIdentifier = regexp.MustCompile(`^[A-Za-z0-9_@-]+$`)
 
 const SessionRootMarker = ".profc-session-root"
+const ProcessEnv = "CODEX_REMOTE_LIMITED_GROUP"
 
 type ToolServer struct {
 	Name      string   `json:"name"`
@@ -68,8 +69,16 @@ func within(root, path string) bool {
 }
 
 func (p ExecutionPolicy) ConfigOverrides() map[string]any {
+	readable := map[string]any{":minimal": "read", p.Workspace: "read", p.Workdir: "read", p.OutputDir: "write"}
+	if p.NativeConfigPath != "" {
+		configDir := filepath.Dir(p.NativeConfigPath)
+		readable[filepath.Join(configDir, "skills")] = "read"
+		if filepath.Base(configDir) == ".codex" {
+			readable[filepath.Join(filepath.Dir(configDir), ".agents", "skills")] = "read"
+		}
+	}
 	c := map[string]any{"approval_policy": "on-request", "approvals_reviewer": "user", "default_permissions": "profc_limited",
-		"permissions.profc_limited.filesystem":      map[string]any{":minimal": "read", p.Workspace: "read", p.Workdir: "read", p.OutputDir: "write"},
+		"permissions.profc_limited.filesystem":      readable,
 		"permissions.profc_limited.network.enabled": false, "apps._default.default_tools_approval_mode": "prompt"}
 	// Automatic hooks, personal memory and child agents are outside this wrapper's
 	// per-request confirmation and conversation ownership boundary.

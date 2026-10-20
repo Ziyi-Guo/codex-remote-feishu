@@ -46,7 +46,7 @@ func TestLimitedGroupsHeadlessUsesCanonicalNativeExecutableOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"KEEP=1", config.CodexRealBinaryEnv + "=" + canonical}
+	want := []string{"KEEP=1", config.CodexRealBinaryEnv + "=" + canonical, limitedgroups.ProcessEnv + "=1"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("native helper retains blocked symlink: %#v", got)
 	}

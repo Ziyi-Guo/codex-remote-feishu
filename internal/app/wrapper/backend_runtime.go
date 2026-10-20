@@ -3,6 +3,7 @@ package wrapper
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/kxn/codex-remote-feishu/internal/claudesessionstore"
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
 	"github.com/kxn/codex-remote-feishu/internal/debuglog"
+	"github.com/kxn/codex-remote-feishu/internal/limitedgroups"
 	"github.com/kxn/codex-remote-feishu/internal/pathcanon"
 	"github.com/kxn/codex-remote-feishu/internal/pathcompare"
 )
@@ -104,6 +106,7 @@ func newBackendRuntime(cfg Config) backendRuntime {
 		return &codexBackendRuntime{
 			translator:   codex.NewTranslator(cfg.InstanceID),
 			shellCommand: newShellCommandRuntime(cfg.RuntimePaths.StateDir, cfg.InstanceID),
+			limited:      os.Getenv(limitedgroups.ProcessEnv) == "1",
 		}
 	}
 }
@@ -266,6 +269,7 @@ type codexBackendRuntime struct {
 	mu           sync.Mutex
 	translator   *codex.Translator
 	shellCommand *shellCommandRuntime
+	limited      bool
 }
 
 func (r *codexBackendRuntime) Backend() agentproto.Backend {
@@ -276,6 +280,9 @@ func (r *codexBackendRuntime) Capabilities() agentproto.Capabilities {
 	capabilities := agentproto.DefaultCapabilitiesForBackend(agentproto.BackendCodex)
 	capabilities.ModelCatalog = true
 	capabilities.LimitedGroups = true
+	if r.limited {
+		capabilities.ThreadsRefresh = false
+	}
 	return capabilities
 }
 

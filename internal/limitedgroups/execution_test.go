@@ -5,6 +5,22 @@ import (
 	"testing"
 )
 
+func TestExecutionPolicyReadsSkillsWithoutExposingPersonalConfig(t *testing.T) {
+	r := t.TempDir()
+	p := ExecutionPolicy{NativeConfigPath: filepath.Join(r, ".codex", "config.toml")}
+	fs := p.ConfigOverrides()["permissions.profc_limited.filesystem"].(map[string]any)
+	for _, dir := range []string{filepath.Join(r, ".codex", "skills"), filepath.Join(r, ".agents", "skills")} {
+		if fs[dir] != "read" {
+			t.Fatalf("existing skills not readable: %s", dir)
+		}
+	}
+	for _, path := range []string{r, filepath.Join(r, ".codex"), p.NativeConfigPath, filepath.Join(r, ".codex", "auth.json")} {
+		if _, ok := fs[path]; ok {
+			t.Fatalf("unrelated owner data exposed: %s", path)
+		}
+	}
+}
+
 func TestExecutionPolicyPreservesToolsAndRequiresHumanApproval(t *testing.T) {
 	r := t.TempDir()
 	p := ExecutionPolicy{OwnerUserID: "ou_owner", Workspace: filepath.Join(r, "project"), Workdir: filepath.Join(r, "delegate"), OutputDir: filepath.Join(r, "delegate", "output"), Servers: []ToolServer{{Name: "bytedcli", Tools: []string{"query", "write"}}, {Name: "cua_repl", PluginID: "unified-computer-use@openai-bundled", Tools: []string{"js"}}, {Name: "codex_apps", Connector: true}}}
