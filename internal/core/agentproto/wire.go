@@ -21,6 +21,7 @@ const (
 )
 
 type Capabilities struct {
+	LimitedGroups        bool `json:"limitedGroups,omitempty"`
 	ThreadsRefresh       bool `json:"threadsRefresh,omitempty"`
 	TurnSteer            bool `json:"turnSteer,omitempty"`
 	ThreadShellCommand   bool `json:"threadShellCommand,omitempty"`

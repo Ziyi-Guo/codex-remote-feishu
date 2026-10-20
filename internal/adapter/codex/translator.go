@@ -3,9 +3,12 @@ package codex
 import (
 	"github.com/kxn/codex-remote-feishu/internal/adapter/adapterkit"
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
+	"github.com/kxn/codex-remote-feishu/internal/limitedgroups"
 )
 
 type Translator struct {
+	limitedExecution      *limitedgroups.ExecutionPolicy
+	limitedVerifiedThread string
 	adapterkit.TranslatorBase
 	instanceID                 string
 	currentThreadID            string

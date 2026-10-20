@@ -77,6 +77,9 @@ const (
 func (s *Service) ensureSurface(action control.Action) *state.SurfaceConsoleRecord {
 	surface := s.root.Surfaces[action.SurfaceSessionID]
 	if surface != nil {
+		if action.LimitedExecution != nil {
+			surface.LimitedExecution = action.LimitedExecution
+		}
 		if action.GatewayID != "" {
 			surface.GatewayID = action.GatewayID
 		}
@@ -102,6 +105,7 @@ func (s *Service) ensureSurface(action control.Action) *state.SurfaceConsoleReco
 	}
 
 	surface = &state.SurfaceConsoleRecord{
+		LimitedExecution:    action.LimitedExecution,
 		SurfaceSessionID:    action.SurfaceSessionID,
 		Platform:            "feishu",
 		GatewayID:           action.GatewayID,

@@ -4,6 +4,9 @@ import (
 	"context"
 	"log"
 	"strings"
+	"time"
+
+	"github.com/kxn/codex-remote-feishu/internal/limitedgroups"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
@@ -32,6 +35,9 @@ func (g *LiveGateway) routingEnv() gatewaypkg.RoutingEnv {
 func (g *LiveGateway) inboundEnv() gatewaypkg.InboundEnv {
 	return gatewaypkg.InboundEnv{
 		GatewayID:                     g.config.GatewayID,
+		LimitedGroups:                 gatewaypkg.CloneLimitedGroups(g.config.LimitedGroups),
+		AcceptLimitedMessage:          g.acceptLimitedMessage,
+		DeliverLimitedInboundFailure:  g.deliverLimitedInboundFailure,
 		BotOpenID:                     g.currentBotOpenID(),
 		LookupSurfaceMessage:          g.lookupSurfaceMessage,
 		ParseTextActionWithoutCatalog: control.ParseFeishuTextActionWithoutCatalog,
@@ -157,5 +163,36 @@ func (g *LiveGateway) deliverAsyncInboundFailure(ctx context.Context, surfaceID,
 	defer cancel()
 	if err := g.Apply(applyCtx, []Operation{op}); err != nil {
 		log.Printf("feishu async inbound failure notice delivery failed: surface=%s reply_to=%s err=%v", surfaceID, replyToMessageID, err)
+	}
+}
+
+func (g *LiveGateway) acceptLimitedMessage(chatID, userID, messageID string) (bool, error) {
+	policy, reserved := gatewaypkg.LimitedGroupPolicy(g.config.LimitedGroups, chatID)
+	if !reserved || !policy.Allows(chatID, userID) {
+		return false, limitedgroups.ErrPolicy
+	}
+	if g.limitedLedgerErr != nil {
+		return false, g.limitedLedgerErr
+	}
+	if g.limitedLedger == nil {
+		return false, limitedgroups.ErrLedger
+	}
+	location, err := time.LoadLocation(policy.LocationName())
+	if err != nil {
+		return false, limitedgroups.ErrPolicy
+	}
+	_, duplicate, err := g.limitedLedger.Accept(g.config.GatewayID, userID, messageID, policy.Limit(userID), time.Now(), location)
+	return duplicate, err
+}
+
+func (g *LiveGateway) deliverLimitedInboundFailure(ctx context.Context, surfaceID, chatID, actorUserID, replyToMessageID, body string) {
+	receiveID, receiveIDType := gatewaypkg.ResolveReceiveTarget(chatID, actorUserID)
+	if receiveID == "" || receiveIDType == "" {
+		return
+	}
+	applyCtx, cancel := gatewaypkg.NewFeishuTimeoutContext(ctx, asyncInboundFailureNoticeTimeout)
+	defer cancel()
+	if err := g.Apply(applyCtx, []Operation{{Kind: OperationSendText, GatewayID: g.config.GatewayID, SurfaceSessionID: surfaceID, ReceiveID: receiveID, ReceiveIDType: receiveIDType, ChatID: chatID, ReplyToMessageID: replyToMessageID, Text: body}}); err != nil {
+		log.Printf("feishu limited-group failure notice delivery failed: gateway=%s err=%v", g.config.GatewayID, err)
 	}
 }

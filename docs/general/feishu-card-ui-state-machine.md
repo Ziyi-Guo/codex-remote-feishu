@@ -1,8 +1,8 @@
 # Feishu 卡片 UI 状态机
 
 > Type: `general`
-> Updated: `2026-10-13`
-> Summary: 邮箱审核拒绝仅移除显示文本，保留 callback、链接、路由和卡片交互语义。
+> Updated: `2026-10-20`
+> Summary: 限定同事群的确认卡仅允许配置 owner 单次批准，保留原生 request ID 与旧卡 freshness 校验。
 
 ## 1. 文档定位
 
@@ -1064,6 +1064,12 @@ MCP request 卡片当前新增的可视语义：
 动态 GPT Profile 的 `[luna]` / `[terra]` / `[sol]` / `[astra]` 及 `[模型:强度]` 是话题设置的快捷入口。前缀只从本条输入正文剥离；配置验证或持久化失败时展示错误，不能显示成功或启动消息。排队项按入队时的选择执行；前缀项的开始通知标明“请求模型”和“话题设置”，不把请求值当作 backend 已确认的执行结果。
 
 卡片 owner、lifecycle freshness、inline replacement 和后台 `model.list` 刷新协议不变。迁移失败时只发送修复状态目录后重启的提示，不创建可交互的伪 surface。完整产品状态与恢复边界见 [remote-surface-state-machine.md](./remote-surface-state-machine.md) 的 Codex 话题模型设置章节。
+
+### 限定同事群确认卡
+
+`limitedGroups` 群沿用原生 request 卡和 daemon lifecycle freshness，不增加可转发的口令或聊天文本授权。callback 的真实 operator 必须在当前白名单，target surface 必须属于同一 gateway/chat，且原参与人仍在名单。批准权限只认配置的 owner OpenID；`request_user_input` 类型由待处理记录确定，不能通过 callback 声称类型绕过检查。
+
+确认卡仅展示本次允许、拒绝或取消，过滤会话与永久授权；额外 permission grant 只提供拒绝。服务端再次拒绝伪造的 persistent option，wrapper 也拒绝非 owner、非 pending request 或带策略修订的响应。关闭群策略后，旧卡也不能继续 dispatch。受限群隐藏连接、工作区、权限等管理动作的实际执行能力；菜单原样展示不代表这些操作获得授权。
 
 ## 待讨论取舍
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
 	"github.com/kxn/codex-remote-feishu/internal/core/control"
+	"github.com/kxn/codex-remote-feishu/internal/limitedgroups"
 )
 
 type RoutingEnv struct {
@@ -27,6 +28,9 @@ type QuotedMessageInputs struct {
 }
 
 type InboundEnv struct {
+	LimitedGroups                    []limitedgroups.Policy
+	AcceptLimitedMessage             func(chatID, userID, messageID string) (bool, error)
+	DeliverLimitedInboundFailure     func(context.Context, string, string, string, string, string)
 	GatewayID                        string
 	BotOpenID                        string
 	LookupSurfaceMessage             func(messageID string) string

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kxn/codex-remote-feishu/internal/adapter/feishu"
+	gatewaypkg "github.com/kxn/codex-remote-feishu/internal/adapter/feishu/gateway"
 	previewpkg "github.com/kxn/codex-remote-feishu/internal/adapter/feishu/preview"
 	toolruntime "github.com/kxn/codex-remote-feishu/internal/app/daemon/toolruntime"
 	"github.com/kxn/codex-remote-feishu/internal/app/desktopsession"
@@ -369,18 +370,20 @@ build:
 		}
 		enabled := app.Enabled == nil || *app.Enabled
 		values = append(values, feishu.GatewayAppConfig{
-			GatewayID:             gatewayID,
-			Name:                  strings.TrimSpace(app.Name),
-			AppID:                 strings.TrimSpace(app.AppID),
-			AppSecret:             strings.TrimSpace(app.AppSecret),
-			BotOpenID:             hookBotOpenID(hooks.BotOpenIDForGateway, gatewayID),
-			Enabled:               enabled,
-			UseSystemProxy:        services.FeishuUseSystemProxy,
-			ImageTempDir:          filepath.Join(paths.StateDir, "image-staging", sanitizeGatewayPath(gatewayID)),
-			PreviewStatePath:      filepath.Join(paths.StateDir, "feishu-md-preview-"+sanitizeGatewayPath(gatewayID)+".json"),
-			PreviewCacheDir:       filepath.Join(paths.DataDir, "preview-cache", sanitizeGatewayPath(gatewayID)),
-			PreviewRootFolderName: strings.TrimSpace(appConfig.Storage.PreviewRootFolderName),
-			PrimaryGatewayForChat: hooks.PrimaryGatewayForChat,
+			GatewayID:              gatewayID,
+			LimitedGroups:          gatewaypkg.CloneLimitedGroups(app.LimitedGroups),
+			LimitedGroupsUsagePath: filepath.Join(paths.StateDir, "limited-groups-usage-"+sanitizeGatewayPath(gatewayID)+".json"),
+			Name:                   strings.TrimSpace(app.Name),
+			AppID:                  strings.TrimSpace(app.AppID),
+			AppSecret:              strings.TrimSpace(app.AppSecret),
+			BotOpenID:              hookBotOpenID(hooks.BotOpenIDForGateway, gatewayID),
+			Enabled:                enabled,
+			UseSystemProxy:         services.FeishuUseSystemProxy,
+			ImageTempDir:           filepath.Join(paths.StateDir, "image-staging", sanitizeGatewayPath(gatewayID)),
+			PreviewStatePath:       filepath.Join(paths.StateDir, "feishu-md-preview-"+sanitizeGatewayPath(gatewayID)+".json"),
+			PreviewCacheDir:        filepath.Join(paths.DataDir, "preview-cache", sanitizeGatewayPath(gatewayID)),
+			PreviewRootFolderName:  strings.TrimSpace(appConfig.Storage.PreviewRootFolderName),
+			PrimaryGatewayForChat:  hooks.PrimaryGatewayForChat,
 		})
 	}
 	return values

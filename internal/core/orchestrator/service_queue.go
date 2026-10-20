@@ -485,10 +485,11 @@ func (s *Service) promptSendCommandAndGuardEventsFromQueueItem(surface *state.Su
 			Inputs: item.Inputs,
 		},
 		Overrides: agentproto.PromptOverrides{
-			Model:           overrides.Model,
-			ReasoningEffort: overrides.ReasoningEffort,
-			AccessMode:      overrides.AccessMode,
-			PlanMode:        planModeOverride,
+			LimitedExecution: surface.LimitedExecution,
+			Model:            overrides.Model,
+			ReasoningEffort:  overrides.ReasoningEffort,
+			AccessMode:       overrides.AccessMode,
+			PlanMode:         planModeOverride,
 		},
 		CodexResume: CodexResumePolicyForThread(item.CodexConnectionContract, item.CodexThreadPolicy, codexResumeTargetThread(inst, dispatchPlan)),
 	}

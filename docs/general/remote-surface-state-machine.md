@@ -1,8 +1,8 @@
 # Remote Surface 核心状态机
 
 > Type: `general`
-> Updated: `2026-10-13`
-> Summary: 飞书内容审核拒绝与链路失败分离，邮箱移除后限定单次重发，失败 notice 不递归入队。
+> Updated: `2026-10-20`
+> Summary: 增加单群限定同事入口、持久额度、独立工作区和原生执行权限守卫。
 > 1. visible 但 contract mismatch 的 workspace/session 仍然可见，不会再被 `/list`、`/use`、workspace recency、target picker 直接吞掉；
 > 2. 这些 mismatch 候选不会再假装“可直接接管”；
 > 3. detached `/use`、headless exact-thread restore、workspace attach、startup resume、`/mode` backend switch、`/claudeprofile`、`/codexprofile`、`/opencodeprofile` 现在都会统一先判定 `attach visible compatible / reuse managed compatible / restart managed incompatible / fresh-start matching headless / reject`，而不是各自维护平行 continuation；
@@ -2085,6 +2085,17 @@ retained-offline overlay 额外规则：
 同功能的 required 操作要求全部满足，每个 API 的候选 scope 组内部为任选一项。匹配保留 tenant/user 身份和 grant_status；群信息兼容新旧名称，Drive/Cron 使用逐操作权限，记录读取使用官方 Search 接口。未知身份不能自动清掉缺口。
 
 权限错误仅在有明确 scope 证据时生成缺口；any-of 关系从错误结构或明确文本中保留。多条独立 violation 若无法确认是同身份同一任选组，保留完整证据且不靠 scope 快照自动清除，等待实际重试验证。daemon 状态和 broker 用同一匹配规则清除，broker 按 API/resource 隔离，避免读取权限解开其它写操作。文件 ACL/资源不可见不是凭空申请全盘管理权限的依据。
+
+## 10.1 限定同事群的执行边界
+
+- `feishu.apps[].limitedGroups[]` 仅匹配精确 `chatId`；关闭、无效或重复策略仍保留群身份并拒绝执行。其他群和私聊使用原路径。白名单、每日额度、逐人额度覆盖和时区由本地配置管理，不创建飞书发布或审批。
+- gateway 在日志正文、引用与附件读取前核对真人事件中的 `sender.open_id`；通过 mention gate 和有效消息规划后、读取附件或引用前预扣持久额度。去重覆盖服务重启；计数状态不可读写时停止。纯 @ 不触发 `/primary on`，也不计数。
+- surface 为 `feishu:<gateway>:chat:<chat>@limited.<actor>.<topic>`，按真实发言人与话题分别派生私有工作区。受限 surface 不参与普通群的单工作区绑定与恢复冲突合并，不能选择个人实例、其他 workspace 或个人 thread。
+- 首条文字通过原有 headless launch 和消息续办进入独立 wrapper；daemon 在入站和每次 dispatch 重新校验当前策略，要求 managed Codex wrapper 明确声明 `limitedGroups` 能力且 workspace 匹配。关闭策略立即阻止后续 dispatch；不主动杀死已经获准的执行。
+- daemon 传递 `PromptOverrides.LimitedExecution`。wrapper 首次接收后固定整份策略；新建和恢复都强制 `on-request`、人工 reviewer、命名 permissions profile、关闭网络，只允许 output 目录写入。只有原生返回的 profile、write roots、网络、tmp 排除和 reviewer 与期望一致才发送 turn；后续 turn 不发送旧 sandbox override。未知或不匹配响应拒绝执行。
+- 每个已核验的 MCP server/tool（含 plugin server）强制 `prompt`；连接器默认 `prompt`。原生配置指纹改变时停止受限执行并重新核验工具清单；app-server flat config key 不使用 TOML 引号。受限 thread 不开放 compact、review、fork 和 child restart 的无守卫旁路；关闭自动 hooks、个人 memories、子 Agent、goal 和自动安装 MCP，强制后续交互进程输入重新请求批准。
+- 工具、shell、文件变更和 MCP 确认均绑定原生 request ID，确认人只能是配置的 owner OpenID；同事不能批准自己的写操作。不开放 session/always、策略修订或额外 permissions grant。普通业务问答不改变审批人身份。
+- 代码与沙箱测试通过只证明技术边界；发布后仍须用真实同事消息、额度读回、附件回传和 owner 确认验证业务目标。
 
 ## 11. 待讨论取舍
 

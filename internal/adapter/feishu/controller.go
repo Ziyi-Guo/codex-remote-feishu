@@ -13,6 +13,7 @@ import (
 	previewpkg "github.com/kxn/codex-remote-feishu/internal/adapter/feishu/preview"
 	"github.com/kxn/codex-remote-feishu/internal/core/control"
 	"github.com/kxn/codex-remote-feishu/internal/feishuidentity"
+	"github.com/kxn/codex-remote-feishu/internal/limitedgroups"
 )
 
 type GatewayAdminController interface {
@@ -32,19 +33,21 @@ type PermissionBlockController interface {
 }
 
 type GatewayAppConfig struct {
-	GatewayID             string
-	Name                  string
-	AppID                 string
-	AppSecret             string
-	BotOpenID             string
-	Domain                string
-	Enabled               bool
-	UseSystemProxy        bool
-	ImageTempDir          string
-	PreviewStatePath      string
-	PreviewCacheDir       string
-	PreviewRootFolderName string
-	PrimaryGatewayForChat func(chatID string) string
+	LimitedGroups          []limitedgroups.Policy
+	LimitedGroupsUsagePath string
+	GatewayID              string
+	Name                   string
+	AppID                  string
+	AppSecret              string
+	BotOpenID              string
+	Domain                 string
+	Enabled                bool
+	UseSystemProxy         bool
+	ImageTempDir           string
+	PreviewStatePath       string
+	PreviewCacheDir        string
+	PreviewRootFolderName  string
+	PrimaryGatewayForChat  func(chatID string) string
 }
 
 type GatewayStatus struct {
@@ -155,14 +158,16 @@ func NewMultiGatewayController() *MultiGatewayController {
 	}
 	controller.newGateway = func(cfg GatewayAppConfig) gatewayRuntime {
 		return NewLiveGateway(LiveGatewayConfig{
-			GatewayID:             cfg.GatewayID,
-			AppID:                 cfg.AppID,
-			AppSecret:             cfg.AppSecret,
-			BotOpenID:             cfg.BotOpenID,
-			Domain:                cfg.Domain,
-			TempDir:               cfg.ImageTempDir,
-			UseSystemProxy:        cfg.UseSystemProxy,
-			PrimaryGatewayForChat: cfg.PrimaryGatewayForChat,
+			GatewayID:              cfg.GatewayID,
+			LimitedGroups:          gatewaypkg.CloneLimitedGroups(cfg.LimitedGroups),
+			LimitedGroupsUsagePath: cfg.LimitedGroupsUsagePath,
+			AppID:                  cfg.AppID,
+			AppSecret:              cfg.AppSecret,
+			BotOpenID:              cfg.BotOpenID,
+			Domain:                 cfg.Domain,
+			TempDir:                cfg.ImageTempDir,
+			UseSystemProxy:         cfg.UseSystemProxy,
+			PrimaryGatewayForChat:  cfg.PrimaryGatewayForChat,
 		})
 	}
 	controller.newPreviewer = func(runtime gatewayRuntime, cfg GatewayAppConfig) gatewayPreviewRuntime {
@@ -187,6 +192,7 @@ func NewMultiGatewayController() *MultiGatewayController {
 
 func normalizeGatewayAppConfig(cfg GatewayAppConfig) GatewayAppConfig {
 	cfg.GatewayID = gatewaypkg.NormalizeGatewayID(cfg.GatewayID)
+	cfg.LimitedGroups = gatewaypkg.CloneLimitedGroups(cfg.LimitedGroups)
 	if strings.TrimSpace(cfg.PreviewRootFolderName) == "" {
 		cfg.PreviewRootFolderName = previewpkg.DefaultRootFolderName
 	}

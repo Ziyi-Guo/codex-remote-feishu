@@ -99,6 +99,10 @@ func (a *App) saveGroupOnDemandResumeContinuationLocked(surfaceID string, action
 	if a.surfaceResumeRuntime.groupOnDemandContinuations == nil {
 		a.surfaceResumeRuntime.groupOnDemandContinuations = map[string]*groupOnDemandResumeContinuation{}
 	}
+	if existing := a.surfaceResumeRuntime.groupOnDemandContinuations[surfaceID]; existing != nil && action.LimitedExecution != nil {
+		existing.Additional = append(existing.Additional, cloneControlAction(action))
+		return
+	}
 	expiresAt := now.Add(30 * time.Second)
 	if snapshot := a.service.SurfaceSnapshot(surfaceID); snapshot != nil && !snapshot.PendingHeadless.ExpiresAt.IsZero() {
 		expiresAt = snapshot.PendingHeadless.ExpiresAt
@@ -132,6 +136,9 @@ func (a *App) replayGroupOnDemandResumeContinuationsLocked(ctx context.Context, 
 		delete(a.surfaceResumeRuntime.groupOnDemandContinuations, surfaceID)
 		a.service.ReleaseFeishuRoomGroupOnDemandReservation(surfaceID)
 		replays = append(replays, cloneControlAction(continuation.Action))
+		for _, action := range continuation.Additional {
+			replays = append(replays, cloneControlAction(action))
+		}
 	}
 	for _, action := range replays {
 		a.handleActionLocked(ctx, action, ingressEpisodeOptions{allowGroupOnDemandResume: false})

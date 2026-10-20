@@ -93,6 +93,13 @@ func (a *App) handleUIEventsLocked(ctx context.Context, events []eventcontract.E
 				continue
 			}
 			dispatchCommand := *event.Command
+			var limitedErr error
+			dispatchCommand, limitedErr = a.guardLimitedDispatch(event.SurfaceSessionID, instanceID, dispatchCommand)
+			if limitedErr != nil {
+				rollback := a.service.HandleCommandDispatchFailure(event.SurfaceSessionID, event.Command.CommandID, agentproto.ErrorInfo{Code: "limited_execution_blocked", Layer: "daemon", Stage: "dispatch_prepare", Message: limitedErr.Error()})
+				a.handleUIEventsLocked(ctx, rollback)
+				continue
+			}
 			if !orchestrator.NonTurnAgentCommand(dispatchCommand.Kind) {
 				a.traceSteerCommand(event.SurfaceSessionID, instanceID, dispatchCommand)
 			}

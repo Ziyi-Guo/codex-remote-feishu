@@ -12,6 +12,7 @@ import (
 	"github.com/kxn/codex-remote-feishu/internal/atomicfile"
 	"github.com/kxn/codex-remote-feishu/internal/core/netutil"
 	"github.com/kxn/codex-remote-feishu/internal/core/relayurl"
+	"github.com/kxn/codex-remote-feishu/internal/limitedgroups"
 	"github.com/kxn/codex-remote-feishu/internal/pathscope"
 	"github.com/kxn/codex-remote-feishu/internal/xutil"
 )
@@ -129,12 +130,13 @@ type FeishuSettings struct {
 }
 
 type FeishuAppConfig struct {
-	ID         string     `json:"id,omitempty"`
-	Name       string     `json:"name,omitempty"`
-	AppID      string     `json:"appId,omitempty"`
-	AppSecret  string     `json:"appSecret,omitempty"`
-	Enabled    *bool      `json:"enabled,omitempty"`
-	VerifiedAt *time.Time `json:"verifiedAt,omitempty"`
+	LimitedGroups []limitedgroups.Policy `json:"limitedGroups,omitempty"`
+	ID            string                 `json:"id,omitempty"`
+	Name          string                 `json:"name,omitempty"`
+	AppID         string                 `json:"appId,omitempty"`
+	AppSecret     string                 `json:"appSecret,omitempty"`
+	Enabled       *bool                  `json:"enabled,omitempty"`
+	VerifiedAt    *time.Time             `json:"verifiedAt,omitempty"`
 }
 
 type DebugSettings struct {

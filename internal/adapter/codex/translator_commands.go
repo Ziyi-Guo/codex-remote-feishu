@@ -11,6 +11,9 @@ import (
 )
 
 func (t *Translator) TranslateCommand(command agentproto.Command) ([][]byte, error) {
+	if err := t.guardLimitedCommand(command); err != nil {
+		return nil, err
+	}
 	switch command.Kind {
 	case agentproto.CommandPromptSend:
 		return t.translatePromptSend(command)
@@ -397,6 +400,7 @@ func (t *Translator) translatePromptSendResumeOrDirect(command agentproto.Comman
 			"cwd":      pathcanon.Native(choose(command.Target.CWD, t.knownThreadCWD[command.Target.ThreadID])),
 		}
 		applyCodexResumePolicyToThreadParams(params, command.CodexResume)
+		applyLimitedThreadParams(params, command.Overrides.LimitedExecution)
 		t.recordCodexPolicyForThread(command.Target.ThreadID, command.CodexResume)
 		t.invalidateChangedModelEvidence(command.Target.ThreadID, params)
 		payload := map[string]any{
@@ -461,6 +465,9 @@ func (t *Translator) translateRequestRespond(command agentproto.Command) ([][]by
 	if err != nil {
 		return nil, err
 	}
+	if t.limitedExecution != nil {
+		delete(t.pendingRequestTypes, command.Request.RequestID)
+	}
 	return [][]byte{append(bytes, '\n')}, nil
 }
 
@@ -485,6 +492,7 @@ func (t *Translator) buildThreadStartParamsWithPolicy(cwd string, overrides agen
 	setDefault(params, "dynamicTools", nil)
 	applyCodexResumePolicyToThreadParams(params, policy)
 	applyPromptOverridesToThreadStart(params, overrides)
+	applyLimitedThreadParams(params, overrides.LimitedExecution)
 	return params
 }
 
@@ -504,6 +512,16 @@ func (t *Translator) directTurnStart(threadID string, command agentproto.Command
 	setDefault(template, "attachments", []any{})
 	applyCodexResumePolicyToTurnStart(template, command.CodexResume)
 	applyPromptOverridesToTurnStart(template, command.Overrides)
+	if p := command.Overrides.LimitedExecution; p != nil {
+		if t.limitedVerifiedThread != threadID {
+			return nil, "", fmt.Errorf("limited native permissions are not verified")
+		}
+		template["cwd"] = p.Workdir
+		template["approvalPolicy"] = "on-request"
+		template["approvalsReviewer"] = "user"
+		delete(template, "sandboxPolicy")
+		delete(template, "sandbox")
+	}
 	if err := t.completeCollaborationSettings(threadID, template); err != nil {
 		return nil, "", err
 	}

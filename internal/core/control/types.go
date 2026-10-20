@@ -1,6 +1,7 @@
 package control
 
 import (
+	"github.com/kxn/codex-remote-feishu/internal/limitedgroups"
 	"time"
 
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
@@ -130,6 +131,7 @@ type ActionFileAttachment struct {
 }
 
 type Action struct {
+	LimitedExecution    *limitedgroups.ExecutionPolicy
 	Kind                ActionKind
 	GatewayID           string
 	SurfaceSessionID    string

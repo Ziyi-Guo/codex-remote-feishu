@@ -1,6 +1,7 @@
 package state
 
 import (
+	"github.com/kxn/codex-remote-feishu/internal/limitedgroups"
 	"strings"
 	"time"
 
@@ -315,6 +316,7 @@ type ThreadReplayRecord struct {
 }
 
 type SurfaceConsoleRecord struct {
+	LimitedExecution *limitedgroups.ExecutionPolicy
 	SurfaceSessionID string
 	Platform         string
 	GatewayID        string

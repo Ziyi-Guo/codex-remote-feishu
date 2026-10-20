@@ -2,12 +2,17 @@ package codex
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
 )
 
 func (t *Translator) BuildChildRestartRestoreFrame(commandID string) ([]byte, string, bool, error) {
+	if t.limitedExecution != nil {
+		t.limitedVerifiedThread = ""
+		return nil, "", false, fmt.Errorf("limited execution must resume through guarded prompt dispatch")
+	}
 	threadID := strings.TrimSpace(t.currentThreadID)
 	if threadID == "" {
 		return nil, "", false, nil

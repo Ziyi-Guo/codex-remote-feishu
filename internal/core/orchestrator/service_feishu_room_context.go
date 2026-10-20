@@ -25,7 +25,7 @@ func feishuRoomContextID(chatID string) string {
 }
 
 func surfaceFeishuRoomID(surface *state.SurfaceConsoleRecord) string {
-	if surface == nil || !surfaceIsFeishuChat(surface) {
+	if surface == nil || surface.LimitedExecution != nil || !surfaceIsFeishuChat(surface) {
 		return ""
 	}
 	return feishuRoomContextID(surface.ChatID)

@@ -10,6 +10,7 @@ import (
 
 	gatewaypkg "github.com/kxn/codex-remote-feishu/internal/adapter/feishu/gateway"
 	"github.com/kxn/codex-remote-feishu/internal/core/control"
+	"github.com/kxn/codex-remote-feishu/internal/limitedgroups"
 )
 
 type ActionHandler func(context.Context, control.Action) *ActionResult
@@ -29,20 +30,24 @@ func (NopGateway) Start(context.Context, ActionHandler) error { return nil }
 func (NopGateway) Apply(context.Context, []Operation) error   { return nil }
 
 type LiveGatewayConfig struct {
-	GatewayID             string
-	AppID                 string
-	AppSecret             string
-	BotOpenID             string
-	Domain                string
-	TempDir               string
-	UseSystemProxy        bool
-	PrimaryGatewayForChat func(chatID string) string
+	LimitedGroups          []limitedgroups.Policy
+	LimitedGroupsUsagePath string
+	GatewayID              string
+	AppID                  string
+	AppSecret              string
+	BotOpenID              string
+	Domain                 string
+	TempDir                string
+	UseSystemProxy         bool
+	PrimaryGatewayForChat  func(chatID string) string
 }
 
 type LiveGateway struct {
-	config LiveGatewayConfig
-	client *lark.Client
-	broker *FeishuCallBroker
+	config           LiveGatewayConfig
+	limitedLedger    *limitedgroups.Ledger
+	limitedLedgerErr error
+	client           *lark.Client
+	broker           *FeishuCallBroker
 
 	downloadImageFn    func(context.Context, string, string) (string, string, error)
 	downloadFileFn     func(context.Context, string, string, string) (string, error)
@@ -103,6 +108,7 @@ type feishuPostNode struct {
 
 func NewLiveGateway(config LiveGatewayConfig) *LiveGateway {
 	config.GatewayID = gatewaypkg.NormalizeGatewayID(config.GatewayID)
+	config.LimitedGroups = gatewaypkg.CloneLimitedGroups(config.LimitedGroups)
 	client := NewLarkClientWithOpenBaseURL(config.AppID, config.AppSecret, config.Domain)
 	gateway := &LiveGateway{
 		config:              config,
@@ -112,6 +118,9 @@ func NewLiveGateway(config LiveGatewayConfig) *LiveGateway {
 		messages:            map[string]string{},
 		surfaceReplyAnchors: map[string]string{},
 		botOpenID:           strings.TrimSpace(config.BotOpenID),
+	}
+	if len(config.LimitedGroups) > 0 {
+		gateway.limitedLedger, gateway.limitedLedgerErr = limitedgroups.OpenLedger(config.LimitedGroupsUsagePath)
 	}
 	gateway.downloadImageFn = gateway.downloadImage
 	gateway.downloadFileFn = gateway.downloadFile

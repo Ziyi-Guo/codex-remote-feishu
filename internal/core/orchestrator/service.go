@@ -319,6 +319,9 @@ func (s *Service) SetPrimaryBotPermissionChecker(checker PrimaryBotPermissionChe
 
 func (s *Service) ApplySurfaceAction(action control.Action) []eventcontract.Event {
 	surface := s.ensureSurface(action)
+	if blocked := s.limitedActionBlocked(surface, action); blocked != nil {
+		return blocked
+	}
 	if blocked := s.rejectInvalidBotCapabilitySettings(surface, action); blocked != nil {
 		return s.filterEventsForSurfaceVisibility(blocked)
 	}

@@ -1,6 +1,9 @@
 package agentproto
 
-import "time"
+import (
+	"github.com/kxn/codex-remote-feishu/internal/limitedgroups"
+	"time"
+)
 
 type InitiatorKind string
 
@@ -345,10 +348,11 @@ type Prompt struct {
 }
 
 type PromptOverrides struct {
-	Model           string `json:"model,omitempty"`
-	ReasoningEffort string `json:"reasoningEffort,omitempty"`
-	AccessMode      string `json:"accessMode,omitempty"`
-	PlanMode        string `json:"planMode,omitempty"`
+	LimitedExecution *limitedgroups.ExecutionPolicy `json:"limitedExecution,omitempty"`
+	Model            string                         `json:"model,omitempty"`
+	ReasoningEffort  string                         `json:"reasoningEffort,omitempty"`
+	AccessMode       string                         `json:"accessMode,omitempty"`
+	PlanMode         string                         `json:"planMode,omitempty"`
 }
 
 type Request struct {

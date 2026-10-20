@@ -197,6 +197,11 @@ var errSurfaceResumeStateNotWritable = errors.New("surface resume state is not w
 func (a *App) handleAction(ctx context.Context, action control.Action) *feishu.ActionResult {
 	if action.Kind == control.ActionFeishuBotAddedToGroup {
 		a.mu.Lock()
+		_, limited, policyErr := a.limitedPolicy(action.GatewayID, action.ChatID)
+		if limited || policyErr != nil {
+			a.mu.Unlock()
+			return nil
+		}
 		if a.surfaceResumeRuntime.codexTopicModelMigrationErr != nil {
 			a.deliverCodexTopicModelMigrationMaintenanceTextLocked(ctx, action)
 			a.mu.Unlock()
@@ -211,6 +216,11 @@ func (a *App) handleAction(ctx context.Context, action control.Action) *feishu.A
 }
 
 func (a *App) handleActionLocked(ctx context.Context, action control.Action, options ingressEpisodeOptions) *feishu.ActionResult {
+	var admitted bool
+	action, admitted = a.guardLimitedInbound(action)
+	if !admitted {
+		return nil
+	}
 	if a.shuttingDown {
 		log.Printf(
 			"surface action ignored during shutdown: surface=%s chat=%s actor=%s kind=%s message=%s",
@@ -297,6 +307,13 @@ func (a *App) handleActionLocked(ctx context.Context, action control.Action, opt
 		return inlineResult
 	}
 	if options.allowGroupOnDemandResume {
+		if action.LimitedExecution != nil {
+			if events, waiting := a.service.PrepareLimitedGroup(action); waiting {
+				a.saveGroupOnDemandResumeContinuationLocked(action.SurfaceSessionID, action, time.Now().UTC())
+				a.handleUIEventsLocked(ctx, events)
+				return nil
+			}
+		}
 		if events, handled := a.maybeStartFeishuGroupOnDemandResumeLocked(action); handled {
 			a.handleUIEventsLocked(ctx, events)
 			a.syncSurfaceResumeStateLocked(nil)

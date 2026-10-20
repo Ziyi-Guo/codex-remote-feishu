@@ -16,6 +16,9 @@ func (t *Translator) ObserveServer(raw []byte) (Result, error) {
 	if err := json.Unmarshal(raw, &message); err != nil {
 		return Result{}, err
 	}
+	if result, handled := t.autoApproveLimitedRead(message); handled {
+		return result, nil
+	}
 
 	if id, ok := message["id"]; ok {
 		requestID := fmt.Sprint(id)
@@ -177,6 +180,9 @@ func (t *Translator) ObserveServer(raw []byte) (Result, error) {
 				}
 			}
 			t.currentThreadID = threadID
+			if err := t.verifyLimitedResponse(message, pending.Command.Overrides.LimitedExecution, threadID); err != nil {
+				return limitedNativePermissionFailure(pending.Command, threadID, err), nil
+			}
 			if pending.Command.Target.CWD != "" {
 				t.knownThreadCWD[threadID] = pathcanon.Native(pending.Command.Target.CWD)
 			}
@@ -227,6 +233,9 @@ func (t *Translator) ObserveServer(raw []byte) (Result, error) {
 				}}}, nil
 			}
 			t.currentThreadID = pending.ThreadID
+			if err := t.verifyLimitedResponse(message, pending.Command.Overrides.LimitedExecution, pending.ThreadID); err != nil {
+				return limitedNativePermissionFailure(pending.Command, pending.ThreadID, err), nil
+			}
 			if pending.Command.Target.CWD != "" {
 				t.knownThreadCWD[pending.ThreadID] = pathcanon.Native(pending.Command.Target.CWD)
 			}

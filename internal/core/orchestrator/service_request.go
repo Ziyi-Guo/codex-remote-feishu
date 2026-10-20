@@ -27,12 +27,21 @@ func (s *Service) respondRequest(surface *state.SurfaceConsoleRecord, action con
 	if followup != nil {
 		return followup
 	}
+	if surface.LimitedExecution != nil && normalizeRequestType(request.RequestType) != "request_user_input" && action.ActorUserID != surface.LimitedExecution.OwnerUserID {
+		return notice(surface, "limited_owner_required", "这项操作需要所有者本人确认。")
+	}
 	if strings.TrimSpace(request.LocalKind) != "" {
 		return s.respondLocalRequest(surface, request, action)
 	}
 	requestType := normalizeRequestType(xutil.FirstNonEmpty(requestAction.RequestType, request.RequestType))
+	if surface.LimitedExecution != nil {
+		requestType = normalizeRequestType(request.RequestType)
+	}
 	if requestType == "" {
 		requestType = "approval"
+	}
+	if !limitedRequestResponseAllowed(surface, requestType, action) {
+		return notice(surface, "limited_owner_required", "此操作只能由所有者确认一次，不能授予会话权限。")
 	}
 	response, _, followup := s.buildRequestResponse(surface, request, action, requestType)
 	if followup != nil {
@@ -161,8 +170,11 @@ func (s *Service) presentRequestPrompt(instanceID string, event agentproto.Event
 		s.requestTemporarySessionLabel(record),
 	)
 	normalizeRequestPromptRecord(record)
-	if events, handled := s.maybeAutoApproveCodexReviewRequest(surface, record); handled {
-		return events
+	limitRequestOptions(surface, record)
+	if surface.LimitedExecution == nil {
+		if events, handled := s.maybeAutoApproveCodexReviewRequest(surface, record); handled {
+			return events
+		}
 	}
 	enqueuePendingRequest(surface, record)
 	if !pendingRequestIsActive(surface, record.RequestID) {

@@ -55,9 +55,10 @@ type surfaceResumeRuntimeState struct {
 }
 
 type groupOnDemandResumeContinuation struct {
-	Action    control.Action
-	ExpireAt  time.Time
-	CreatedAt time.Time
+	Action     control.Action
+	Additional []control.Action
+	ExpireAt   time.Time
+	CreatedAt  time.Time
 }
 
 type claudeWorkspaceProfileRuntimeState struct {

@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -396,6 +397,13 @@ func (l *SurfaceInboundLane) EnqueueAction(action control.Action) bool {
 
 func HandleInboundMessageEvent(ctx context.Context, env InboundEnv, event *larkim.P2MessageReceiveV1, lane *SurfaceInboundLane, dispatch ActionDispatcher) error {
 	plan, ok, err := PlanInboundMessageEvent(env, event)
+	var limitedFailure *limitedInboundFailure
+	if errors.As(err, &limitedFailure) {
+		if env.DeliverLimitedInboundFailure != nil {
+			env.DeliverLimitedInboundFailure(ctx, limitedFailure.surfaceID, limitedFailure.chatID, limitedFailure.actorUserID, limitedFailure.messageID, limitedFailureBody(err))
+		}
+		return nil
+	}
 	if err != nil || !ok {
 		return err
 	}
@@ -443,7 +451,7 @@ func HandleInboundMessageReactionCreatedEvent(ctx context.Context, env InboundEn
 	return dispatch(ctx, action)
 }
 
-func PlanInboundMessageEvent(env InboundEnv, event *larkim.P2MessageReceiveV1) (PlannedInboundMessage, bool, error) {
+func planInboundMessageEvent(env InboundEnv, event *larkim.P2MessageReceiveV1, limited bool) (PlannedInboundMessage, bool, error) {
 	if event == nil || event.Event == nil || event.Event.Message == nil {
 		return PlannedInboundMessage{}, false, nil
 	}
@@ -454,6 +462,12 @@ func PlanInboundMessageEvent(env InboundEnv, event *larkim.P2MessageReceiveV1) (
 	gatewayID := strings.TrimSpace(env.GatewayID)
 	topicRootID := inboundTopicRootID(env, message)
 	surfaceSessionID := SurfaceIDForInboundTopic(gatewayID, chatID, chatType, senderUserID, topicRootID)
+	if limited {
+		surfaceSessionID = LimitedSurfaceID(gatewayID, chatID, senderUserID, topicRootID)
+		if surfaceSessionID == "" {
+			return PlannedInboundMessage{}, false, nil
+		}
+	}
 	inbound := InboundMetaFromMessageEvent(event)
 
 	if reason := groupMessageMentionGateReason(env, message, senderTypeFromMessageSender(event.Event.Sender)); reason != "" {
@@ -482,6 +496,9 @@ func PlanInboundMessageEvent(env InboundEnv, event *larkim.P2MessageReceiveV1) (
 		if err != nil {
 			logInboundMessageParseFailed(gatewayID, surfaceSessionID, inbound, message, "parse_text_content", err)
 			return PlannedInboundMessage{}, false, err
+		}
+		if limited && (strings.TrimSpace(text) == "" || isPureCurrentBotMentionText(commandText, message.Mentions, env.BotOpenID)) {
+			return PlannedInboundMessage{}, false, nil
 		}
 		if !strings.EqualFold(strings.TrimSpace(chatType), "p2p") && isPureCurrentBotMentionText(commandText, message.Mentions, env.BotOpenID) {
 			if env.PrimaryGatewayForChat != nil && strings.TrimSpace(env.PrimaryGatewayForChat(chatID)) == gatewayID {

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	gatewaypkg "github.com/kxn/codex-remote-feishu/internal/adapter/feishu/gateway"
 	"github.com/kxn/codex-remote-feishu/internal/app/daemon/feishuroomstate"
 	"github.com/kxn/codex-remote-feishu/internal/app/daemon/surfaceresume"
 	"github.com/kxn/codex-remote-feishu/internal/core/control"
@@ -108,6 +109,9 @@ func (a *App) reconcileFeishuRoomWorkspaceStateLocked(entries map[string]surface
 	}
 	candidates := map[string]map[string]feishuRoomWorkspaceCandidate{}
 	for _, entry := range entries {
+		if _, _, limited := gatewaypkg.LimitedSurfaceIdentity(entry.SurfaceSessionID); limited {
+			continue
+		}
 		ref, ok := feishuidentity.ParseSurfaceRef(entry.SurfaceSessionID)
 		if !ok || !ref.IsChat() {
 			continue
@@ -174,6 +178,9 @@ func (a *App) recordFeishuRoomWorkspaceConflictLocked(roomID string, candidates 
 }
 
 func (a *App) feishuRoomWorkspaceConflictNotice(action control.Action) *control.Notice {
+	if action.LimitedExecution != nil {
+		return nil
+	}
 	ref, ok := feishuidentity.ParseSurfaceRef(action.SurfaceSessionID)
 	if !ok || !ref.IsChat() {
 		return nil
