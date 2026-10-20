@@ -16,6 +16,7 @@ require (
 	golang.org/x/sys v0.40.0
 	golang.org/x/text v0.34.0
 	modernc.org/sqlite v1.46.0
+	mvdan.cc/sh/v3 v3.12.0
 )
 
 require (

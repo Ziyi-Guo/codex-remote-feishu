@@ -2099,7 +2099,7 @@ retained-offline overlay 额外规则：
 - 复用已有技能时，仅将已核验 native 配置相邻的 `skills` 目录及标准 `.agents/skills` 目录加入只读范围；不授予 native 配置目录、认证文件或个人历史目录的读取权限。
 - daemon 传递 `PromptOverrides.LimitedExecution`。wrapper 首次接收后固定整份策略；新建和恢复都强制 `on-request`、人工 reviewer、命名 permissions profile、关闭网络，只允许 output 目录写入。只有原生返回的 profile、write roots、网络、tmp 排除和 reviewer 与期望一致才发送 turn；后续 turn 不发送旧 sandbox override。未知或不匹配响应拒绝执行。
 - 每个已核验的 MCP server/tool（含 plugin server）强制 `prompt`；连接器默认 `prompt`。原生配置指纹改变时停止受限执行并重新核验工具清单；app-server flat config key 不使用 TOML 引号。受限 thread 不开放 compact、review、fork 和 child restart 的无守卫旁路；关闭自动 hooks、个人 memories、子 Agent、goal 和自动安装 MCP，强制后续交互进程输入重新请求批准。
-- 已识别的 RDS 只读命令可单次放行；`--no-auto-upgrade` 作为禁止自动升级的无参数全局选项识别，帮助查询仅接受已核验读命令的精确路径和末尾 `--help` / `-h`，不因帮助标记放宽其他命令或 SQL；原生 shell 展示中的双引号转义仅解码 `\"`，仍对完整内层命令和 SQL 做原有只读校验，其他转义、展开、拼接和写 SQL 保持拒绝自动放行。
+- RDS 只读放行先解析完整 shell 语法并取得实际 argv，不按原生展示字符串匹配：允许字面参数、最多一层固定 native shell 包装，以及每条均通过既有 RDS/SQL 只读检查的 `;` / `&&` 批次；拒绝展开、赋值、重定向、管道、后台及未知命令。帮助按已核验 CLI/RDS 读命令路径识别，`--no-auto-upgrade` 禁止工具自动升级。SQL 由词法/语法检查区分反引号标识符、字符串与语句；确认仍仅单次有效，不授予前缀、会话或永久权限。
 - 工具、shell、文件变更和 MCP 确认均绑定原生 request ID，确认人只能是配置的 owner OpenID；同事不能批准自己的写操作。不开放 session/always、策略修订或额外 permissions grant。普通业务问答不改变审批人身份。
 - 代码与沙箱测试通过只证明技术边界；发布后仍须用真实同事消息、额度读回、附件回传和 owner 确认验证业务目标。
 

@@ -3,8 +3,6 @@ package limitedgroups
 import (
 	"strconv"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 )
 
 // IsKnownReadCommand recognizes a deliberately small, literal subset. False
@@ -12,7 +10,11 @@ import (
 // This is a surface classifier, not a SQL sandbox or a general shell parser.
 func IsKnownReadCommand(command string) bool {
 	argv, ok := literalArgv(command)
-	if !ok || len(argv) < 4 || argv[0] != "bytedcli" {
+	return ok && isKnownReadArgv(argv)
+}
+
+func isKnownReadArgv(argv []string) bool {
+	if len(argv) < 2 || argv[0] != "bytedcli" {
 		return false
 	}
 	i := 1
@@ -27,6 +29,8 @@ func IsKnownReadCommand(command string) bool {
 		}
 		seen[flag] = true
 		switch flag {
+		case "--help", "-h":
+			return i == len(argv)-1
 		case "--json", "--no-auto-upgrade":
 			i++
 		case "--site":
@@ -37,6 +41,9 @@ func IsKnownReadCommand(command string) bool {
 		default:
 			return false
 		}
+	}
+	if i+2 == len(argv) && argv[i] == "rds" && oneOf(argv[i+1], "--help", "-h") {
+		return true
 	}
 	if i+2 >= len(argv) || argv[i] != "rds" || argv[i+1] != "db" {
 		return false
@@ -57,7 +64,7 @@ func IsKnownReadCommand(command string) bool {
 		i++
 	}
 	nargs := 0
-	flags := map[string]string{"--region": "region", "-r": "region", "--mode": "mode"}
+	flags := map[string]string{"--region": "region", "-r": "region", "--mode": "mode", "--help": "bool", "-h": "bool"}
 	switch verb {
 	case "list":
 		flags["--starred"] = "bool"
@@ -141,69 +148,6 @@ func IsKnownReadCommand(command string) bool {
 	return true
 }
 
-// Only plain words and single/double quoted strings are admitted. Rejecting all
-// expansion markers, and allowing only escaped double quotes inside double
-// quotes, preserves native shell rendering without admitting shell expansion.
-func literalArgv(command string) ([]string, bool) {
-	if len(command) > 32768 || !utf8.ValidString(command) {
-		return nil, false
-	}
-	var argv []string
-	var word strings.Builder
-	var quote rune
-	started := false
-	escapedQuote := false
-	for _, r := range command {
-		if escapedQuote {
-			if r != '"' {
-				return nil, false
-			}
-			word.WriteRune(r)
-			escapedQuote = false
-			continue
-		}
-		if r == '\\' && quote == '"' {
-			escapedQuote = true
-			continue
-		}
-		if unicode.IsControl(r) || strings.ContainsRune("$`\\", r) {
-			return nil, false
-		}
-		if quote != 0 {
-			if r == quote {
-				quote = 0
-			} else {
-				word.WriteRune(r)
-			}
-			continue
-		}
-		if r == '\'' || r == '"' {
-			quote, started = r, true
-			continue
-		}
-		if r == ' ' {
-			if started {
-				argv = append(argv, word.String())
-				word.Reset()
-				started = false
-			}
-			continue
-		}
-		if unicode.IsSpace(r) || strings.ContainsRune(";&|<>(){}[]*?~#", r) {
-			return nil, false
-		}
-		started = true
-		word.WriteRune(r)
-	}
-	if quote != 0 || escapedQuote {
-		return nil, false
-	}
-	if started {
-		argv = append(argv, word.String())
-	}
-	return argv, len(argv) > 0
-}
-
 func literalName(value string) bool {
 	if value == "" || len(value) > 512 || value[0] == '-' {
 		return false
@@ -250,7 +194,7 @@ type sqlReader struct {
 }
 
 func conservativeReadSQL(sql string) bool {
-	if len(sql) > 16384 || strings.ContainsAny(sql, ";#\\") || strings.Contains(sql, "--") || strings.Contains(sql, "/*") || strings.Contains(sql, "*/") {
+	if len(sql) > 16384 || strings.Contains(sql, "\\") {
 		return false
 	}
 	tokens, ok := readSQLTokens(sql)
@@ -299,6 +243,19 @@ func readSQLTokens(sql string) ([]sqlToken, bool) {
 	for i := 0; i < len(sql); {
 		c := sql[i]
 		if c == ' ' {
+			i++
+			continue
+		}
+		if c == '`' {
+			start := i + 1
+			i = start
+			for i < len(sql) && sql[i] != '`' {
+				i++
+			}
+			if i == len(sql) || !literalName(sql[start:i]) || strings.Contains(sql[start:i], ".") {
+				return nil, false
+			}
+			tokens = append(tokens, sqlToken{"word", strings.ToUpper(sql[start:i])})
 			i++
 			continue
 		}

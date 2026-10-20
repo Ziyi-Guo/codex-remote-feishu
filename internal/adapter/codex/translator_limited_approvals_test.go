@@ -17,6 +17,8 @@ func TestLimitedGroupsAutoApprovesOnlyCompleteReadCommand(t *testing.T) {
 		{`/bin/bash -lc 'bytedcli --no-auto-upgrade rds db query --help'`, true},
 		{`/bin/bash -lc "bytedcli --no-auto-upgrade rds db query ip_fun \"SELECT name, account_id FROM show_info WHERE show_uuid = 'show_123' LIMIT 1\""`, true},
 		{`/bin/bash -lc 'bytedcli --no-auto-upgrade rds db query ip_fun "DELETE FROM show_info"'`, false},
+		{`/bin/bash -c 'bytedcli --no-auto-upgrade rds db query --help; bytedcli --no-auto-upgrade --json rds db table schema ip_fun show --mode dbw'`, true},
+		{`bytedcli rds db list; bytedcli rds db query ip_fun "DELETE FROM show_info"`, false},
 		{`curl -X POST http://localhost/write`, false},
 	} {
 		t.Run(tc.cmd, func(t *testing.T) {
