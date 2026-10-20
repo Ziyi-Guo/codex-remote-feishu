@@ -70,3 +70,26 @@ func TestExecutionPolicyRejectsWriteRootsAndUnknownAuthority(t *testing.T) {
 		})
 	}
 }
+
+func TestExecutionPolicySkipsDesktopOnlyMCPWithoutDisablingBusinessTools(t *testing.T) {
+	p := ExecutionPolicy{Servers: []ToolServer{
+		{Name: "code-review", PluginID: "code-review@openai-bundled"},
+		{Name: "codex_app", PluginID: "codex-app-tools@openai-bundled"},
+		{Name: "cua_repl", PluginID: "unified-computer-use@openai-bundled", Tools: []string{"js"}},
+		{Name: "bytedcli"},
+	}}
+	c := p.ConfigOverrides()
+	for _, key := range []string{"plugins.code-review@openai-bundled.mcp_servers.code-review.enabled", "plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled"} {
+		if c[key] != false {
+			t.Errorf("desktop-only MCP still starts: %s", key)
+		}
+	}
+	for _, key := range []string{"plugins.unified-computer-use@openai-bundled.enabled", "plugins.unified-computer-use@openai-bundled.mcp_servers.cua_repl.enabled", "mcp_servers.bytedcli.enabled", "features.plugins"} {
+		if c[key] == false {
+			t.Errorf("unrelated tools disabled: %s", key)
+		}
+	}
+	if c["mcp_servers.bytedcli.default_tools_approval_mode"] != "prompt" || c["plugins.unified-computer-use@openai-bundled.mcp_servers.cua_repl.tools.js.approval_mode"] != "prompt" {
+		t.Fatal("business tool approval guards changed")
+	}
+}

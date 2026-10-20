@@ -456,6 +456,8 @@ MCP request 卡片当前新增的可视语义：
 
 飞书 IM create/reply/patch 若返回 `230028 / EMAIL_ADDRESS`，仅 JSON 显示文本移除完整邮箱并标记 `[邮箱地址已移除]`，再发送一次。callback `value`、link target、routing/owner/freshness 字段均不改写；若其中仍含邮箱，则保留拒绝，不伪造可用按钮或链接。该处理不改变 replace/append 判断。剩余内容拒绝沿已有 global runtime gateway-failure 车道追加“消息未通过飞书内容审核”，明确不可原样重试；失败 notice 不递归生成 notice。
 
+限定同事群自动创建独立会话时，只保留一条“正在准备查询”的启动提示。自动 attach 的内部清空/待命通知和 native thread 绑定的“当前输入目标”不投影为用户卡片；选择状态与原问题续办保持不变。显式 `/new` 确认、实际错误和 owner 写操作确认仍按原规则投影，不改变 callback、freshness 或 replace/append 语义。
+
 ### 5.1 同步 replace 的必要条件
 
 当前 `gateway` 会在命中以下任一路径时，同步等待 handler 结果并返回 callback replace：

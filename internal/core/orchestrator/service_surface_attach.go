@@ -74,7 +74,7 @@ func (s *Service) attachWorkspaceWithOptions(surface *state.SurfaceConsoleRecord
 		return append(events, blocked...)
 	}
 	if options.PrepareNewThread {
-		return s.prepareNewThreadWithOverlayCleanup(surface, options.OverlayCleanup)
+		return s.prepareNewThreadWithNotices(surface, options.OverlayCleanup, surface.LimitedExecution == nil)
 	}
 
 	noticeCode := "workspace_attached"

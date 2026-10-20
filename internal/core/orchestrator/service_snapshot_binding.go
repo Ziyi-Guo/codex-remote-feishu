@@ -61,6 +61,11 @@ func (s *Service) threadSelectionEvents(surface *state.SurfaceConsoleRecord, thr
 		RouteMode: routeMode,
 		Title:     title,
 	}
+	// Private colleague sessions have no user-selectable execution target.
+	// Keep selection bookkeeping without publishing internal route changes.
+	if surface.LimitedExecution != nil {
+		return nil
+	}
 	return []eventcontract.Event{threadSelectionEvent(surface, threadID, routeMode, title)}
 }
 

@@ -85,6 +85,10 @@ func (p ExecutionPolicy) ConfigOverrides() map[string]any {
 	for _, feature := range []string{"hooks", "memories", "chronicle", "multi_agent", "multi_agent_v2", "goals", "shell_snapshot", "skill_mcp_dependency_install"} {
 		c["features."+feature] = false
 	}
+	// These bundled servers depend on desktop-only facilities or a shared
+	// mutable review home; neither belongs in an isolated colleague session.
+	c["plugins.code-review@openai-bundled.mcp_servers.code-review.enabled"] = false
+	c["plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled"] = false
 	c["features.write_stdin_approval"] = true
 	c["project_root_markers"] = []string{SessionRootMarker}
 	for _, s := range p.Servers {

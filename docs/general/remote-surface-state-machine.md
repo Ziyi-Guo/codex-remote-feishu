@@ -2093,6 +2093,8 @@ retained-offline overlay 额外规则：
 - surface 为 `feishu:<gateway>:chat:<chat>@limited.<actor>.<topic>`，按真实发言人与话题分别派生私有工作区。受限 surface 不参与普通群的单工作区绑定与恢复冲突合并，不能选择个人实例、其他 workspace 或个人 thread。
 - 私有工作区使用 `.profc-session-root` 与 `project_root_markers` 截断祖先 state 目录的指令加载；仅受限 headless 将 `CODEX_REAL_BINARY` 的 symlink 解析到真实可执行文件，避免 macOS 文件沙箱拒绝原生 helper 的 re-exec。
 - 首条文字通过原有 headless launch 和消息续办进入独立 wrapper；daemon 在入站和每次 dispatch 重新校验当前策略，要求 managed Codex wrapper 明确声明 `limitedGroups` 能力且 workspace 匹配。关闭策略立即阻止后续 dispatch；不主动杀死已经获准的执行。
+- 限定群自动 attach 保留私有工作区与 new-thread-ready 状态，但不发布内部清空/待命提示；原首条问题自动续办，不要求用户再发一条。限定 surface 的选择记录仍正常更新，但不发送内部“当前输入目标”卡；显式 `/new` 的确认及实际阻塞、失败仍保留。
+- 限定 thread 通过本次 config override 禁用 `code-review` 与 `codex_app` 两个依赖桌面设施或共享可写 review home 的 bundled MCP server；不改全局 native 配置，不关闭其他业务工具，不用隐藏启动错误替代启动隔离。
 - 受限 headless 由宿主标记 `CODEX_REMOTE_LIMITED_GROUP=1`，从首个 hello 起不声明 `threadsRefresh`。启动、线程发现和空闲维护均不枚举所有者的个人 thread；单条 `thread.discovered` 仍正常投影。core 对受限 surface 也跳过全局元数据补全，wrapper 对直接发来的 `threads.refresh` 继续拒绝。
 - 复用已有技能时，仅将已核验 native 配置相邻的 `skills` 目录及标准 `.agents/skills` 目录加入只读范围；不授予 native 配置目录、认证文件或个人历史目录的读取权限。
 - daemon 传递 `PromptOverrides.LimitedExecution`。wrapper 首次接收后固定整份策略；新建和恢复都强制 `on-request`、人工 reviewer、命名 permissions profile、关闭网络，只允许 output 目录写入。只有原生返回的 profile、write roots、网络、tmp 排除和 reviewer 与期望一致才发送 turn；后续 turn 不发送旧 sandbox override。未知或不匹配响应拒绝执行。
