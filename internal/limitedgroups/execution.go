@@ -11,6 +11,8 @@ import (
 
 var configIdentifier = regexp.MustCompile(`^[A-Za-z0-9_@-]+$`)
 
+const SessionRootMarker = ".profc-session-root"
+
 type ToolServer struct {
 	Name      string   `json:"name"`
 	PluginID  string   `json:"pluginId,omitempty"`
@@ -75,6 +77,7 @@ func (p ExecutionPolicy) ConfigOverrides() map[string]any {
 		c["features."+feature] = false
 	}
 	c["features.write_stdin_approval"] = true
+	c["project_root_markers"] = []string{SessionRootMarker}
 	for _, s := range p.Servers {
 		if s.Connector {
 			continue

@@ -4,10 +4,13 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 
 	gatewaypkg "github.com/kxn/codex-remote-feishu/internal/adapter/feishu/gateway"
+	"github.com/kxn/codex-remote-feishu/internal/config"
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
 	"github.com/kxn/codex-remote-feishu/internal/core/control"
 	"github.com/kxn/codex-remote-feishu/internal/core/orchestrator"
@@ -70,6 +73,19 @@ func (a *App) guardLimitedInbound(action control.Action) (control.Action, bool) 
 	if err != nil || filepath.Dir(resolvedOut) != resolved {
 		return action, false
 	}
+	marker := filepath.Join(resolved, limitedgroups.SessionRootMarker)
+	f, err := os.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err == nil {
+		if f.Close() != nil {
+			return action, false
+		}
+	} else if !os.IsExist(err) {
+		return action, false
+	}
+	info, err := os.Lstat(marker)
+	if err != nil || !info.Mode().IsRegular() {
+		return action, false
+	}
 	p := &limitedgroups.ExecutionPolicy{OwnerUserID: policy.OwnerUserID, Workspace: policy.Workspace, Workdir: resolved, OutputDir: resolvedOut, Servers: policy.ExecutionServers, NativeConfigPath: policy.NativeConfigPath, NativeConfigSHA256: policy.NativeConfigSHA256}
 	if p.Validate() != nil {
 		return action, false
@@ -104,4 +120,31 @@ func (a *App) guardLimitedDispatch(surfaceID, instanceID string, command agentpr
 		command.Overrides.AccessMode = ""
 	}
 	return command, nil
+}
+
+func limitedHeadlessEnv(surfaceID string, env []string, configuredBinary string) ([]string, error) {
+	if _, _, limited := gatewaypkg.LimitedSurfaceIdentity(surfaceID); !limited {
+		return env, nil
+	}
+	binary := configuredBinary
+	for _, value := range env {
+		if v, ok := strings.CutPrefix(value, config.CodexRealBinaryEnv+"="); ok && v != "" {
+			binary = v
+		}
+	}
+	path, err := exec.LookPath(binary)
+	if err != nil {
+		return nil, fmt.Errorf("limited native executable unavailable: %w", err)
+	}
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	path, err = filepath.EvalSymlinks(path)
+	if err != nil {
+		return nil, err
+	}
+	// The macOS sandbox helper re-execs argv[0]; a symlink outside its allowed
+	// runtime root fails even when the canonical binary is available.
+	return config.UpsertEnvValue(env, config.CodexRealBinaryEnv, path), nil
 }

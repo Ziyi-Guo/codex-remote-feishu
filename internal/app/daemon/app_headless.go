@@ -271,6 +271,12 @@ func (a *App) startManagedHeadlessLocked(command control.DaemonCommand) []eventc
 		return nil
 	}
 
+	if backend == agentproto.BackendCodex {
+		env, err = limitedHeadlessEnv(command.SurfaceSessionID, env, cfg.CodexRealBinary)
+		if err != nil {
+			return a.handleManagedHeadlessLaunchFailure(command, agentproto.ErrorInfoFromError(err, agentproto.ErrorInfo{Code: "limited_native_binary_unavailable", Layer: "daemon", Stage: "headless_start", Message: "限定会话的运行程序不可用。", SurfaceSessionID: command.SurfaceSessionID}), now)
+		}
+	}
 	pid, err := a.startHeadless(relayruntime.HeadlessLaunchOptions{
 		BinaryPath: cfg.BinaryPath,
 		ConfigPath: cfg.ConfigPath,

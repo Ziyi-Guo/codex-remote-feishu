@@ -2091,6 +2091,7 @@ retained-offline overlay 额外规则：
 - `feishu.apps[].limitedGroups[]` 仅匹配精确 `chatId`；关闭、无效或重复策略仍保留群身份并拒绝执行。其他群和私聊使用原路径。白名单、每日额度、逐人额度覆盖和时区由本地配置管理，不创建飞书发布或审批。
 - gateway 在日志正文、引用与附件读取前核对真人事件中的 `sender.open_id`；通过 mention gate 和有效消息规划后、读取附件或引用前预扣持久额度。去重覆盖服务重启；计数状态不可读写时停止。纯 @ 不触发 `/primary on`，也不计数。
 - surface 为 `feishu:<gateway>:chat:<chat>@limited.<actor>.<topic>`，按真实发言人与话题分别派生私有工作区。受限 surface 不参与普通群的单工作区绑定与恢复冲突合并，不能选择个人实例、其他 workspace 或个人 thread。
+- 私有工作区使用 `.profc-session-root` 与 `project_root_markers` 截断祖先 state 目录的指令加载；仅受限 headless 将 `CODEX_REAL_BINARY` 的 symlink 解析到真实可执行文件，避免 macOS 文件沙箱拒绝原生 helper 的 re-exec。
 - 首条文字通过原有 headless launch 和消息续办进入独立 wrapper；daemon 在入站和每次 dispatch 重新校验当前策略，要求 managed Codex wrapper 明确声明 `limitedGroups` 能力且 workspace 匹配。关闭策略立即阻止后续 dispatch；不主动杀死已经获准的执行。
 - daemon 传递 `PromptOverrides.LimitedExecution`。wrapper 首次接收后固定整份策略；新建和恢复都强制 `on-request`、人工 reviewer、命名 permissions profile、关闭网络，只允许 output 目录写入。只有原生返回的 profile、write roots、网络、tmp 排除和 reviewer 与期望一致才发送 turn；后续 turn 不发送旧 sandbox override。未知或不匹配响应拒绝执行。
 - 每个已核验的 MCP server/tool（含 plugin server）强制 `prompt`；连接器默认 `prompt`。原生配置指纹改变时停止受限执行并重新核验工具清单；app-server flat config key 不使用 TOML 引号。受限 thread 不开放 compact、review、fork 和 child restart 的无守卫旁路；关闭自动 hooks、个人 memories、子 Agent、goal 和自动安装 MCP，强制后续交互进程输入重新请求批准。
