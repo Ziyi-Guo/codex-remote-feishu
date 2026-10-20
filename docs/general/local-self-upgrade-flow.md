@@ -1,7 +1,7 @@
 # 本地自升级流程
 
 > Type: `general`
-> Updated: `2026-09-27`
+> Updated: `2026-10-20`
 > Summary: 说明 repo 构建产物触发本地自升级时的完整时序、内嵌 upgrade shim 的释放与启动方式、与 `/upgrade dev` 的边界、自动回滚规则，以及 repo install target 与当前 daemon self target 的语义边界。
 
 ## 1. 这份文档回答什么问题
@@ -100,6 +100,8 @@ helper 真正切换版本时，覆盖的是这条路径。如果该路径位于 
 ### 3.5 upgrade helper shim
 
 真正执行“停旧服务 -> 切换 stable binary -> 拉起新服务 -> 观察健康 -> 必要时回滚”的，是一个独立 helper 进程。
+
+主程序和内嵌 shim 必须从同一份当前源码构建。直接 `go build` 不会更新内嵌资产，可能得到新主程序与旧更新器的组合；资产自带 SHA 只能验证解压完整性，不能验证源码是否新鲜。`upgrade-local.sh`、`upgrade-self.sh` 以及 `make build/start` 会先运行 `scripts/shim/prepare-shim-embed.sh`。手动准备升级 artifact 时，也必须先运行该脚本，再构建主程序。
 
 这个 helper 不再复用主 `codex-remote` binary 本体，而是一个构建时内嵌在主程序里的 tiny shim。需要执行升级事务时，当前进程会把它释放到：
 

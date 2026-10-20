@@ -19,6 +19,7 @@ test:
 build:
 	bash scripts/web/build-admin-ui.sh
 	bash scripts/externalaccess/prepare-cloudflared-embed.sh
+	bash scripts/shim/prepare-shim-embed.sh
 	$(GO) build ./cmd/codex-remote
 	$(GO) build ./cmd/relayd
 	$(GO) build ./cmd/relay-wrapper
@@ -45,6 +46,7 @@ release-track-version:
 
 start:
 	bash scripts/externalaccess/prepare-cloudflared-embed.sh
+	bash scripts/shim/prepare-shim-embed.sh
 	mkdir -p bin
 	$(GO) build -o ./bin/codex-remote ./cmd/codex-remote
 	./bin/codex-remote install -bootstrap-only -start-daemon
