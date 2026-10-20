@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
 	"github.com/kxn/codex-remote-feishu/internal/limitedgroups"
@@ -33,6 +34,9 @@ func (t *Translator) guardLimitedCommand(c agentproto.Command) error {
 			return fmt.Errorf("limited response has no native pending request")
 		}
 		if typ != agentproto.RequestTypeRequestUserInput {
+			if p.ReadOnlyNetworkNever() {
+				return fmt.Errorf("authorization is disabled in limited read-only mode")
+			}
 			if c.Origin.UserID != p.OwnerUserID || !limitedSingleUseResponse(c.Request.Response) {
 				return fmt.Errorf("limited operation requires owner single-use approval")
 			}
@@ -90,6 +94,11 @@ func applyLimitedThreadParams(params map[string]any, p *limitedgroups.ExecutionP
 	}
 	params["cwd"] = p.Workdir
 	params["approvalPolicy"] = "on-request"
+	if p.ReadOnlyNetworkNever() {
+		params["approvalPolicy"] = "never"
+		instruction, _ := params["developerInstructions"].(string)
+		params["developerInstructions"] = strings.TrimSpace(instruction + "\n" + limitedReadOnlyInstructions(p))
+	}
 	params["approvalsReviewer"] = "user"
 	delete(params, "sandbox")
 	delete(params, "sandboxPolicy")
@@ -108,6 +117,13 @@ func (t *Translator) verifyLimitedResponse(message map[string]any, p *limitedgro
 	}
 	r := lookupMap(message, "result")
 	sandbox := lookupMap(r, "sandbox")
+	if p.ReadOnlyNetworkNever() {
+		if r["approvalPolicy"] != "never" || r["approvalsReviewer"] != "user" || lookupString(r, "activePermissionProfile", "id") != "profc_limited" || sandbox["type"] != "readOnly" || sandbox["networkAccess"] != true || canonicalLimitedPath(lookupString(r, "cwd")) != canonicalLimitedPath(p.Workdir) {
+			return fmt.Errorf("native read-only network permission evidence mismatch")
+		}
+		t.limitedVerifiedThread = threadID
+		return nil
+	}
 	if r["approvalPolicy"] != "on-request" || r["approvalsReviewer"] != "user" || lookupString(r, "activePermissionProfile", "id") != "profc_limited" || sandbox["type"] != "workspaceWrite" || sandbox["networkAccess"] != false || sandbox["excludeTmpdirEnvVar"] != true || sandbox["excludeSlashTmp"] != true {
 		return fmt.Errorf("native limited permission evidence mismatch")
 	}
@@ -135,7 +151,7 @@ func limitedNativePermissionFailure(command agentproto.Command, threadID string,
 }
 
 func (t *Translator) autoApproveLimitedRead(message map[string]any) (Result, bool) {
-	if t.limitedExecution == nil || t.limitedExecution.Validate() != nil || message["method"] != "item/commandExecution/requestApproval" {
+	if t.limitedExecution == nil || t.limitedExecution.ReadOnlyNetworkNever() || t.limitedExecution.Validate() != nil || message["method"] != "item/commandExecution/requestApproval" {
 		return Result{}, false
 	}
 	params := lookupMap(message, "params")

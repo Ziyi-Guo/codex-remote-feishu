@@ -23,6 +23,8 @@ type ToolServer struct {
 
 // ExecutionPolicy is daemon-authored, never populated from model or chat input.
 type ExecutionPolicy struct {
+	ExecutionMode      string       `json:"executionMode,omitempty"`
+	RulesSHA256        string       `json:"rulesSha256,omitempty"`
 	OwnerUserID        string       `json:"ownerUserId"`
 	Workspace          string       `json:"workspace"`
 	Workdir            string       `json:"workdir"`
@@ -33,6 +35,15 @@ type ExecutionPolicy struct {
 }
 
 func (p ExecutionPolicy) Validate() error {
+	if !validExecutionMode(p.ExecutionMode) {
+		return fmt.Errorf("unknown limited execution mode")
+	}
+	if p.ReadOnlyNetworkNever() {
+		hash, err := ForbiddenRulesSHA256(p.Workdir)
+		if err != nil || p.RulesSHA256 == "" || hash != p.RulesSHA256 {
+			return fmt.Errorf("private forbidden rules changed or unavailable")
+		}
+	}
 	if p.NativeConfigPath != "" || p.NativeConfigSHA256 != "" {
 		data, err := os.ReadFile(p.NativeConfigPath)
 		if err != nil || fmt.Sprintf("%x", sha256.Sum256(data)) != p.NativeConfigSHA256 {
@@ -80,6 +91,14 @@ func (p ExecutionPolicy) ConfigOverrides() map[string]any {
 	c := map[string]any{"approval_policy": "on-request", "approvals_reviewer": "user", "default_permissions": "profc_limited",
 		"permissions.profc_limited.filesystem":      readable,
 		"permissions.profc_limited.network.enabled": false, "apps._default.default_tools_approval_mode": "prompt"}
+	toolApproval := "prompt"
+	if p.ReadOnlyNetworkNever() {
+		c["approval_policy"] = "never"
+		c["permissions.profc_limited.filesystem"] = map[string]any{string(filepath.Separator): "read"}
+		c["permissions.profc_limited.network.enabled"] = true
+		toolApproval = "approve"
+		c["apps._default.default_tools_approval_mode"] = toolApproval
+	}
 	// Automatic hooks, personal memory and child agents are outside this wrapper's
 	// per-request confirmation and conversation ownership boundary.
 	for _, feature := range []string{"hooks", "memories", "chronicle", "multi_agent", "multi_agent_v2", "goals", "shell_snapshot", "skill_mcp_dependency_install"} {
@@ -100,9 +119,9 @@ func (p ExecutionPolicy) ConfigOverrides() map[string]any {
 		if s.PluginID != "" {
 			prefix = "plugins." + s.PluginID + "." + prefix
 		}
-		c[prefix+".default_tools_approval_mode"] = "prompt"
+		c[prefix+".default_tools_approval_mode"] = toolApproval
 		for _, tool := range s.Tools {
-			c[prefix+".tools."+tool+".approval_mode"] = "prompt"
+			c[prefix+".tools."+tool+".approval_mode"] = toolApproval
 		}
 	}
 	return c

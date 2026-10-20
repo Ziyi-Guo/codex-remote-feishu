@@ -13,6 +13,7 @@ var principalID = regexp.MustCompile(`^(oc|ou)_[A-Za-z0-9_-]{1,128}$`)
 // Policy applies only to its exact chat. It never replaces a gateway's ordinary
 // personal conversations or grants a colleague authority to approve execution.
 type Policy struct {
+	ExecutionMode      string         `json:"executionMode,omitempty"`
 	Enabled            bool           `json:"enabled"`
 	ChatID             string         `json:"chatId"`
 	OwnerUserID        string         `json:"ownerUserId"`
@@ -32,6 +33,9 @@ func (p Policy) Validate() error {
 	}
 	if !p.Enabled {
 		return nil
+	}
+	if !validExecutionMode(p.ExecutionMode) {
+		return ErrPolicy
 	}
 	if !validPrincipal(p.OwnerUserID, "ou_") || !filepath.IsAbs(p.Workspace) || filepath.Clean(p.Workspace) == filepath.VolumeName(p.Workspace)+string(filepath.Separator) || p.DailyLimit < 1 || p.DailyLimit > 10000 || len(p.AllowedUserIDs) == 0 || len(p.AllowedUserIDs) > 100 {
 		return ErrPolicy

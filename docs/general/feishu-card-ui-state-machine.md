@@ -2,7 +2,7 @@
 
 > Type: `general`
 > Updated: `2026-10-20`
-> Summary: 限定同事群的确认卡仅允许配置 owner 单次批准，保留原生 request ID 与旧卡 freshness 校验。
+> Summary: 显式只读联网 never 群不展示授权卡；缺省限定群保留 owner 单次确认。
 
 ## 1. 文档定位
 
@@ -456,7 +456,7 @@ MCP request 卡片当前新增的可视语义：
 
 飞书 IM create/reply/patch 若返回 `230028 / EMAIL_ADDRESS`，仅 JSON 显示文本移除完整邮箱并标记 `[邮箱地址已移除]`，再发送一次。callback `value`、link target、routing/owner/freshness 字段均不改写；若其中仍含邮箱，则保留拒绝，不伪造可用按钮或链接。该处理不改变 replace/append 判断。剩余内容拒绝沿已有 global runtime gateway-failure 车道追加“消息未通过飞书内容审核”，明确不可原样重试；失败 notice 不递归生成 notice。
 
-限定同事群自动创建独立会话时，只保留一条“正在准备查询”的启动提示。自动 attach 的内部清空/待命通知和 native thread 绑定的“当前输入目标”不投影为用户卡片；选择状态与原问题续办保持不变。显式 `/new` 确认、实际错误和 owner 写操作确认仍按原规则投影，不改变 callback、freshness 或 replace/append 语义。
+限定同事群自动创建独立会话时，只保留一条“正在准备查询”的启动提示。自动 attach 的内部清空/待命通知和 native thread 绑定的“当前输入目标”不投影为用户卡片；选择状态与原问题续办保持不变。显式 `/new` 确认、实际错误和缺省模式的 owner 写操作确认仍按原规则投影，不改变 callback、freshness 或 replace/append 语义。
 
 ### 5.1 同步 replace 的必要条件
 
@@ -1069,9 +1069,11 @@ MCP request 卡片当前新增的可视语义：
 
 ### 限定同事群确认卡
 
-`limitedGroups` 群沿用原生 request 卡和 daemon lifecycle freshness，不增加可转发的口令或聊天文本授权。callback 的真实 operator 必须在当前白名单，target surface 必须属于同一 gateway/chat，且原参与人仍在名单。批准权限只认配置的 owner OpenID；`request_user_input` 类型由待处理记录确定，不能通过 callback 声称类型绕过检查。
+`executionMode` 缺省的 `limitedGroups` 群沿用原生 request 卡和 daemon lifecycle freshness，不增加可转发的口令或聊天文本授权。callback 的真实 operator 必须在当前白名单，target surface 必须属于同一 gateway/chat，且原参与人仍在名单。批准权限只认配置的 owner OpenID；`request_user_input` 类型由待处理记录确定，不能通过 callback 声称类型绕过检查。
 
 确认卡仅展示本次允许、拒绝或取消，过滤会话与永久授权；额外 permission grant 只提供拒绝。服务端再次拒绝伪造的 persistent option，wrapper 也拒绝非 owner、非 pending request 或带策略修订的响应。关闭群策略后，旧卡也不能继续 dispatch。受限群隐藏连接、工作区、权限等管理动作的实际执行能力；菜单原样展示不代表这些操作获得授权。
+
+显式 `readonly-network-never` 模式不展示任何执行授权卡。command/file/permissions/MCP elicitation 请求由 wrapper 直接拒绝并写日志；不能点旧卡补充批准。业务 `request_user_input` 仍按原生待处理记录提供选择。该模式只影响配置的精确群及私有 wrapper，不改变个人群和缺省模式的卡片。
 
 ## 待讨论取舍
 

@@ -22,6 +22,11 @@ func (s *Service) InstanceSupportsLimitedGroups(instanceID, workdir string) bool
 	return inst != nil && inst.Managed && inst.Capabilities.LimitedGroups && inst.WorkspaceRoot == workdir && state.EffectiveInstanceBackend(inst) == agentproto.BackendCodex
 }
 
+func (s *Service) InstanceSupportsLimitedReadOnlyNetwork(instanceID string) bool {
+	inst := s.root.Instances[instanceID]
+	return inst != nil && inst.Capabilities.LimitedReadOnlyNetwork
+}
+
 // PrepareLimitedGroup starts a private workspace; it cannot attach personal instances.
 func (s *Service) PrepareLimitedGroup(action control.Action) ([]eventcontract.Event, bool) {
 	p := action.LimitedExecution
@@ -80,6 +85,9 @@ func LimitedActionAllowed(kind control.ActionKind) bool {
 func limitedRequestResponseAllowed(surface *state.SurfaceConsoleRecord, requestType string, action control.Action) bool {
 	if surface.LimitedExecution == nil || requestType == "request_user_input" {
 		return true
+	}
+	if surface.LimitedExecution.ReadOnlyNetworkNever() {
+		return false
 	}
 	if action.ActorUserID != surface.LimitedExecution.OwnerUserID || action.Request == nil {
 		return false

@@ -2,7 +2,7 @@
 
 > Type: `general`
 > Updated: `2026-10-20`
-> Summary: 增加单群限定同事入口、持久额度、独立工作区和原生执行权限守卫。
+> Summary: 限定群增加显式只读联网、never 授权与私有 forbidden 规则模式；个人会话不变。
 > 1. visible 但 contract mismatch 的 workspace/session 仍然可见，不会再被 `/list`、`/use`、workspace recency、target picker 直接吞掉；
 > 2. 这些 mismatch 候选不会再假装“可直接接管”；
 > 3. detached `/use`、headless exact-thread restore、workspace attach、startup resume、`/mode` backend switch、`/claudeprofile`、`/codexprofile`、`/opencodeprofile` 现在都会统一先判定 `attach visible compatible / reuse managed compatible / restart managed incompatible / fresh-start matching headless / reject`，而不是各自维护平行 continuation；
@@ -2096,12 +2096,13 @@ retained-offline overlay 额外规则：
 - 限定群自动 attach 保留私有工作区与 new-thread-ready 状态，但不发布内部清空/待命提示；原首条问题自动续办，不要求用户再发一条。限定 surface 的选择记录仍正常更新，但不发送内部“当前输入目标”卡；显式 `/new` 的确认及实际阻塞、失败仍保留。
 - 限定 thread 通过本次 config override 禁用 `code-review` 与 `codex_app` 两个依赖桌面设施或共享可写 review home 的 bundled MCP server；不改全局 native 配置，不关闭其他业务工具，不用隐藏启动错误替代启动隔离。
 - 受限 headless 由宿主标记 `CODEX_REMOTE_LIMITED_GROUP=1`，从首个 hello 起不声明 `threadsRefresh`。启动、线程发现和空闲维护均不枚举所有者的个人 thread；单条 `thread.discovered` 仍正常投影。core 对受限 surface 也跳过全局元数据补全，wrapper 对直接发来的 `threads.refresh` 继续拒绝。
-- 复用已有技能时，仅将已核验 native 配置相邻的 `skills` 目录及标准 `.agents/skills` 目录加入只读范围；不授予 native 配置目录、认证文件或个人历史目录的读取权限。
-- daemon 传递 `PromptOverrides.LimitedExecution`。wrapper 首次接收后固定整份策略；新建和恢复都强制 `on-request`、人工 reviewer、命名 permissions profile、关闭网络，只允许 output 目录写入。只有原生返回的 profile、write roots、网络、tmp 排除和 reviewer 与期望一致才发送 turn；后续 turn 不发送旧 sandbox override。未知或不匹配响应拒绝执行。
-- 每个已核验的 MCP server/tool（含 plugin server）强制 `prompt`；连接器默认 `prompt`。原生配置指纹改变时停止受限执行并重新核验工具清单；app-server flat config key 不使用 TOML 引号。受限 thread 不开放 compact、review、fork 和 child restart 的无守卫旁路；关闭自动 hooks、个人 memories、子 Agent、goal 和自动安装 MCP，强制后续交互进程输入重新请求批准。
-- RDS 只读放行先解析完整 shell 语法并取得实际 argv，不按原生展示字符串匹配：允许字面参数、最多一层固定 native shell 包装，以及每条均通过既有 RDS/SQL 只读检查的 `;` / `&&` 批次；拒绝展开、赋值、重定向、管道、后台及未知命令。帮助按已核验 CLI/RDS 读命令路径识别，`--no-auto-upgrade` 禁止工具自动升级。SQL 由词法/语法检查区分反引号标识符、字符串与语句；确认仍仅单次有效，不授予前缀、会话或永久权限。
-- 工具、shell、文件变更和 MCP 确认均绑定原生 request ID，确认人只能是配置的 owner OpenID；同事不能批准自己的写操作。不开放 session/always、策略修订或额外 permissions grant。普通业务问答不改变审批人身份。
-- 代码与沙箱测试通过只证明技术边界；发布后仍须用真实同事消息、额度读回、附件回传和 owner 确认验证业务目标。
+- `executionMode` 缺省保留原 owner 单次确认模式：源目录和技能只读、output 可写、关闭网络、`on-request`；MCP/app 强制 prompt，已有完整 shell/RDS 只读识别仍只提供单次接受。
+- 只有显式 `executionMode=readonly-network-never` 的精确群使用新模式：文件系统根目录只读、开放联网、`approval_policy=never`，MCP/app 审批模式 approve；没有 output 或 tmp 可写范围。此模式允许使用宿主已有只读资料和 CLI 认证，不把它描述为个人文件保密沙箱。仍关闭 hooks、memories、子 Agent、goal、shell snapshot 和自动 MCP 安装。
+- daemon 为每个私有 cwd 安装 `.codex/rules/profc-forbidden.rules`（目录 0700、文件 0600），固定规则 SHA256；符号链接、内容漂移和未知 mode 均拒绝。wrapper 启动仅给自身 native 进程传 `-c projects={"<private cwd>"={trust_level="trusted"}}`，使原生加载该 cwd 的规则；不写全局 config、trust 或 rules。新模式要求 `limitedReadOnlyNetwork` 能力，旧 wrapper 不可承接。
+- daemon 传递 `PromptOverrides.LimitedExecution`，wrapper 首次接收后固定整份策略。新建/恢复必须返回 `never`、人工 reviewer、`profc_limited`、`readOnly`、network=true 和匹配 cwd 才发送 turn；旧模式继续核验 output write root、tmp 排除等原证据。后续 turn 不用 legacy sandbox 覆盖命名权限。
+- 新模式的原生 forbidden 规则覆盖已枚举的 RDS/BPM 写前缀、IPGen 创建/修改/删除/生成前缀、curl 显式 POST/PUT/DELETE/PATCH，包含已安装绝对路径及常见选项组合。前缀匹配不能表达 SQL 语义或任意解释器/HTTP/MCP 写入；RDS query 继续依赖 CLI 调用接口前的只读 SQL 校验，其余按只读开发者提示与日志兜底，不能宣称通用写入防火墙。
+- 新模式不走旧的只读自动批准：原生 command/file/permissions/MCP elicitation 授权请求在 wrapper 边界直接拒绝并记录，不投影卡片；core 和 wrapper 均禁止人工补充批准。普通 `request_user_input` 业务澄清仍保留。缺省模式保留 owner 单次确认、原生 request ID/freshness，不提供 session/always、策略修订或额外 grant。
+- 代码和本机 fake-model/临时接口测试只证明技术边界；发布后另行核验真实同事查询无需点击直接出结果、故意写入被拒、owner 个人群不受影响，不把本地通过或服务健康当作业务验收。
 
 ## 11. 待讨论取舍
 

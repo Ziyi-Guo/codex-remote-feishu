@@ -87,6 +87,16 @@ func (a *App) guardLimitedInbound(action control.Action) (control.Action, bool) 
 		return action, false
 	}
 	p := &limitedgroups.ExecutionPolicy{OwnerUserID: policy.OwnerUserID, Workspace: policy.Workspace, Workdir: resolved, OutputDir: resolvedOut, Servers: policy.ExecutionServers, NativeConfigPath: policy.NativeConfigPath, NativeConfigSHA256: policy.NativeConfigSHA256}
+	p.ExecutionMode = policy.ExecutionMode
+	if p.ReadOnlyNetworkNever() {
+		if err := limitedgroups.EnsureForbiddenRules(resolved); err != nil {
+			return action, false
+		}
+		p.RulesSHA256, err = limitedgroups.ForbiddenRulesSHA256(resolved)
+		if err != nil {
+			return action, false
+		}
+	}
 	if p.Validate() != nil {
 		return action, false
 	}
@@ -108,11 +118,14 @@ func (a *App) guardLimitedDispatch(surfaceID, instanceID string, command agentpr
 	if !limited && p == nil && !encoded {
 		return command, nil
 	}
-	if !encoded || p == nil || !policy.Allows(ref.ChatID(), participant) || p.Validate() != nil || p.OwnerUserID != policy.OwnerUserID || p.Workspace != policy.Workspace || !reflect.DeepEqual(p.Servers, policy.ExecutionServers) || p.NativeConfigPath != policy.NativeConfigPath || p.NativeConfigSHA256 != policy.NativeConfigSHA256 {
+	if !encoded || p == nil || !policy.Allows(ref.ChatID(), participant) || p.Validate() != nil || p.ExecutionMode != policy.ExecutionMode || p.OwnerUserID != policy.OwnerUserID || p.Workspace != policy.Workspace || !reflect.DeepEqual(p.Servers, policy.ExecutionServers) || p.NativeConfigPath != policy.NativeConfigPath || p.NativeConfigSHA256 != policy.NativeConfigSHA256 {
 		return command, fmt.Errorf("limited group is disabled or policy changed")
 	}
 	if !a.service.InstanceSupportsLimitedGroups(instanceID, p.Workdir) {
 		return command, fmt.Errorf("limited execution requires a private guarded wrapper")
+	}
+	if p.ReadOnlyNetworkNever() && !a.service.InstanceSupportsLimitedReadOnlyNetwork(instanceID) {
+		return command, fmt.Errorf("limited read-only mode requires an updated private wrapper")
 	}
 	command.Overrides.LimitedExecution = p
 	if command.Kind == agentproto.CommandPromptSend {

@@ -16,7 +16,7 @@ func (t *Translator) ObserveServer(raw []byte) (Result, error) {
 	if err := json.Unmarshal(raw, &message); err != nil {
 		return Result{}, err
 	}
-	if result, handled := t.autoApproveLimitedRead(message); handled {
+	if result, handled := t.handleLimitedAuthorization(message); handled {
 		return result, nil
 	}
 

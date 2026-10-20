@@ -3,6 +3,7 @@ package wrapper
 import (
 	"fmt"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	acpadapter "github.com/kxn/codex-remote-feishu/internal/adapter/acp"
 	"github.com/kxn/codex-remote-feishu/internal/core/state"
 	"github.com/kxn/codex-remote-feishu/internal/core/toolservicecontract"
+	"github.com/kxn/codex-remote-feishu/internal/limitedgroups"
 )
 
 const (
@@ -21,6 +23,11 @@ func (a *App) buildCodexChildLaunch(baseArgs []string) ([]string, []string) {
 	args := append([]string{}, baseArgs...)
 	env := childEnvWithProxy(a.config.ChildProxyEnv, args)
 	args, env = a.applyCodexFeishuMCPPublication(args, env)
+	if os.Getenv(limitedgroups.ProcessEnv) == "1" && os.Getenv(limitedgroups.ExecutionModeEnv) == limitedgroups.ReadOnlyNetworkNever {
+		// Whole-table startup override is required for native project-rule discovery.
+		// No user config/trust store is written; only this private cwd is trusted.
+		args = append(args, "-c", "projects={"+strconv.Quote(a.config.WorkspaceRoot)+"={trust_level=\"trusted\"}}")
+	}
 	return args, env
 }
 

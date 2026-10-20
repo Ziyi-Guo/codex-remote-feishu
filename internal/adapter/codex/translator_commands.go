@@ -518,6 +518,9 @@ func (t *Translator) directTurnStart(threadID string, command agentproto.Command
 		}
 		template["cwd"] = p.Workdir
 		template["approvalPolicy"] = "on-request"
+		if p.ReadOnlyNetworkNever() {
+			template["approvalPolicy"] = "never"
+		}
 		template["approvalsReviewer"] = "user"
 		delete(template, "sandboxPolicy")
 		delete(template, "sandbox")

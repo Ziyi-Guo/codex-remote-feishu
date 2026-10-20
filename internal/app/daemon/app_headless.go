@@ -19,6 +19,7 @@ import (
 	"github.com/kxn/codex-remote-feishu/internal/core/eventcontract"
 	"github.com/kxn/codex-remote-feishu/internal/core/orchestrator"
 	"github.com/kxn/codex-remote-feishu/internal/core/state"
+	"github.com/kxn/codex-remote-feishu/internal/limitedgroups"
 	"github.com/kxn/codex-remote-feishu/internal/pathcanon"
 	relayruntime "github.com/kxn/codex-remote-feishu/internal/runtime"
 )
@@ -276,6 +277,11 @@ func (a *App) startManagedHeadlessLocked(command control.DaemonCommand) []eventc
 		if err != nil {
 			return a.handleManagedHeadlessLaunchFailure(command, agentproto.ErrorInfoFromError(err, agentproto.ErrorInfo{Code: "limited_native_binary_unavailable", Layer: "daemon", Stage: "headless_start", Message: "限定会话的运行程序不可用。", SurfaceSessionID: command.SurfaceSessionID}), now)
 		}
+		mode := ""
+		if p := a.service.LimitedExecutionForSurface(command.SurfaceSessionID); p != nil {
+			mode = p.ExecutionMode
+		}
+		env = config.UpsertEnvValue(env, limitedgroups.ExecutionModeEnv, mode)
 	}
 	pid, err := a.startHeadless(relayruntime.HeadlessLaunchOptions{
 		BinaryPath: cfg.BinaryPath,

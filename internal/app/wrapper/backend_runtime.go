@@ -280,6 +280,7 @@ func (r *codexBackendRuntime) Capabilities() agentproto.Capabilities {
 	capabilities := agentproto.DefaultCapabilitiesForBackend(agentproto.BackendCodex)
 	capabilities.ModelCatalog = true
 	capabilities.LimitedGroups = true
+	capabilities.LimitedReadOnlyNetwork = true
 	if r.limited {
 		capabilities.ThreadsRefresh = false
 	}

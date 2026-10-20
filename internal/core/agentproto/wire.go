@@ -21,16 +21,17 @@ const (
 )
 
 type Capabilities struct {
-	LimitedGroups        bool `json:"limitedGroups,omitempty"`
-	ThreadsRefresh       bool `json:"threadsRefresh,omitempty"`
-	TurnSteer            bool `json:"turnSteer,omitempty"`
-	ThreadShellCommand   bool `json:"threadShellCommand,omitempty"`
-	RequestRespond       bool `json:"requestRespond,omitempty"`
-	SessionCatalog       bool `json:"sessionCatalog,omitempty"`
-	ModelCatalog         bool `json:"modelCatalog,omitempty"`
-	ResumeByThreadID     bool `json:"resumeByThreadID,omitempty"`
-	RequiresCWDForResume bool `json:"requiresCWDForResume,omitempty"`
-	VSCodeMode           bool `json:"vscodeMode,omitempty"`
+	LimitedGroups          bool `json:"limitedGroups,omitempty"`
+	LimitedReadOnlyNetwork bool `json:"limitedReadOnlyNetwork,omitempty"`
+	ThreadsRefresh         bool `json:"threadsRefresh,omitempty"`
+	TurnSteer              bool `json:"turnSteer,omitempty"`
+	ThreadShellCommand     bool `json:"threadShellCommand,omitempty"`
+	RequestRespond         bool `json:"requestRespond,omitempty"`
+	SessionCatalog         bool `json:"sessionCatalog,omitempty"`
+	ModelCatalog           bool `json:"modelCatalog,omitempty"`
+	ResumeByThreadID       bool `json:"resumeByThreadID,omitempty"`
+	RequiresCWDForResume   bool `json:"requiresCWDForResume,omitempty"`
+	VSCodeMode             bool `json:"vscodeMode,omitempty"`
 }
 
 type BinaryIdentity struct {
