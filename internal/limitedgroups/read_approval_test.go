@@ -14,3 +14,26 @@ func TestReadApprovalUsesCompleteNativeCommand(t *testing.T) {
 		}
 	}
 }
+
+func TestReadApprovalAcceptsNativeEscapedSQLQuotes(t *testing.T) {
+	for _, c := range []string{
+		`/bin/bash -lc "bytedcli --json rds db query ip_fun \"SHOW TABLES LIKE '%show%'\""`,
+		`/bin/bash -lc "bytedcli rds db query ip_fun \"SELECT name, account_id FROM shows WHERE show_uuid = 'show_123' LIMIT 1\""`,
+	} {
+		if !IsKnownReadApprovalCommand(c) {
+			t.Errorf("native read rejected: %s", c)
+		}
+	}
+	for _, c := range []string{
+		`/bin/bash -lc "bytedcli rds db query ip_fun \"SELECT 1 LIMIT 1\"; touch /tmp/x"`,
+		`/bin/bash -lc "bytedcli rds db query ip_fun \"SELECT $(id) LIMIT 1\""`,
+		`/bin/bash -lc "bytedcli rds db query ip_fun \"SELECT 1 LIMIT 1\" && touch /tmp/x"`,
+		`/bin/bash -lc "bytedcli rds db query ip_fun \"DELETE FROM shows\""`,
+		`/bin/bash -lc "bytedcli rds db query ip_fun \"SELECT 1 LIMIT 1\"\n touch /tmp/x"`,
+		`/bin/bash -lc "bytedcli rds db list\\"`,
+	} {
+		if IsKnownReadApprovalCommand(c) {
+			t.Errorf("unsafe native command approved: %s", c)
+		}
+	}
+}

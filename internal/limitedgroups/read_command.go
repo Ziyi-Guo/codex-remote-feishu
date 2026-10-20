@@ -137,7 +137,8 @@ func IsKnownReadCommand(command string) bool {
 }
 
 // Only plain words and single/double quoted strings are admitted. Rejecting all
-// escapes and expansion markers, even when quoted, avoids shell-mode ambiguity.
+// expansion markers, and allowing only escaped double quotes inside double
+// quotes, preserves native shell rendering without admitting shell expansion.
 func literalArgv(command string) ([]string, bool) {
 	if len(command) > 32768 || !utf8.ValidString(command) {
 		return nil, false
@@ -146,7 +147,20 @@ func literalArgv(command string) ([]string, bool) {
 	var word strings.Builder
 	var quote rune
 	started := false
+	escapedQuote := false
 	for _, r := range command {
+		if escapedQuote {
+			if r != '"' {
+				return nil, false
+			}
+			word.WriteRune(r)
+			escapedQuote = false
+			continue
+		}
+		if r == '\\' && quote == '"' {
+			escapedQuote = true
+			continue
+		}
 		if unicode.IsControl(r) || strings.ContainsRune("$`\\", r) {
 			return nil, false
 		}
@@ -176,7 +190,7 @@ func literalArgv(command string) ([]string, bool) {
 		started = true
 		word.WriteRune(r)
 	}
-	if quote != 0 {
+	if quote != 0 || escapedQuote {
 		return nil, false
 	}
 	if started {

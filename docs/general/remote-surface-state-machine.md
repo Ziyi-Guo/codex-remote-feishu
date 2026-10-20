@@ -2097,6 +2097,7 @@ retained-offline overlay 额外规则：
 - 复用已有技能时，仅将已核验 native 配置相邻的 `skills` 目录及标准 `.agents/skills` 目录加入只读范围；不授予 native 配置目录、认证文件或个人历史目录的读取权限。
 - daemon 传递 `PromptOverrides.LimitedExecution`。wrapper 首次接收后固定整份策略；新建和恢复都强制 `on-request`、人工 reviewer、命名 permissions profile、关闭网络，只允许 output 目录写入。只有原生返回的 profile、write roots、网络、tmp 排除和 reviewer 与期望一致才发送 turn；后续 turn 不发送旧 sandbox override。未知或不匹配响应拒绝执行。
 - 每个已核验的 MCP server/tool（含 plugin server）强制 `prompt`；连接器默认 `prompt`。原生配置指纹改变时停止受限执行并重新核验工具清单；app-server flat config key 不使用 TOML 引号。受限 thread 不开放 compact、review、fork 和 child restart 的无守卫旁路；关闭自动 hooks、个人 memories、子 Agent、goal 和自动安装 MCP，强制后续交互进程输入重新请求批准。
+- 已识别的 RDS 只读命令可单次放行；原生 shell 展示中的双引号转义仅解码 `\"`，仍对完整内层命令和 SQL 做原有只读校验，其他转义、展开、拼接和写 SQL 保持拒绝自动放行。
 - 工具、shell、文件变更和 MCP 确认均绑定原生 request ID，确认人只能是配置的 owner OpenID；同事不能批准自己的写操作。不开放 session/always、策略修订或额外 permissions grant。普通业务问答不改变审批人身份。
 - 代码与沙箱测试通过只证明技术边界；发布后仍须用真实同事消息、额度读回、附件回传和 owner 确认验证业务目标。
 
