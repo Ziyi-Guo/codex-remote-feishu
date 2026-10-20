@@ -27,7 +27,7 @@ func IsKnownReadCommand(command string) bool {
 		}
 		seen[flag] = true
 		switch flag {
-		case "--json":
+		case "--json", "--no-auto-upgrade":
 			i++
 		case "--site":
 			if i+1 >= len(argv) || !oneOf(argv[i+1], "cn", "boe", "i18n", "i18n-bd", "i18n-tt", "us-ttp", "eu-ttp") {
@@ -42,6 +42,11 @@ func IsKnownReadCommand(command string) bool {
 		return false
 	}
 	i += 2
+	// Help is metadata only when it names an exact known read-command path,
+	// with no business arguments or additional flags to mask another action.
+	if oneOf(argv[len(argv)-1], "--help", "-h") && oneOf(strings.Join(argv[i:len(argv)-1], " "), "", "list", "search", "overview", "table", "table list", "table schema", "query") {
+		return true
+	}
 	verb := argv[i]
 	i++
 	if verb == "table" {

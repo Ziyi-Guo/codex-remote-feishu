@@ -37,3 +37,32 @@ func TestReadApprovalAcceptsNativeEscapedSQLQuotes(t *testing.T) {
 		}
 	}
 }
+
+func TestReadApprovalAllowsReadHelpAndNoAutoUpgrade(t *testing.T) {
+	for _, c := range []string{
+		`/bin/bash -lc 'bytedcli --no-auto-upgrade rds db query --help'`,
+		`bytedcli --no-auto-upgrade --json rds db table schema ip_fun show_info`,
+		`bytedcli --no-auto-upgrade rds db query ip_fun "SELECT name FROM show_info LIMIT 1"`,
+		`bytedcli rds db query -h`,
+		`bytedcli rds db table schema --help`,
+		`bytedcli rds db --help`,
+	} {
+		if !IsKnownReadApprovalCommand(c) {
+			t.Errorf("read metadata/query rejected: %s", c)
+		}
+	}
+	for _, c := range []string{
+		`bytedcli --no-auto-upgrade rds db query ip_fun "DELETE FROM show_info"`,
+		`bytedcli --no-auto-upgrade rds bpm create --help`,
+		`bytedcli --no-auto-upgrade rds db query --help; touch /tmp/x`,
+		`bytedcli --no-auto-upgrade=false rds db query --help`,
+		`bytedcli rds db query --help --output /tmp/x`,
+		`bytedcli rds db query ip_fun "DELETE FROM show_info" --help`,
+		`bytedcli --no-auto-upgrade --no-auto-upgrade rds db list`,
+		`bytedcli rds db unknown --help`,
+	} {
+		if IsKnownReadApprovalCommand(c) {
+			t.Errorf("unknown or write request approved: %s", c)
+		}
+	}
+}
