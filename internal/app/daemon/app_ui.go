@@ -103,6 +103,12 @@ func (a *App) handleUIEventsLocked(ctx context.Context, events []eventcontract.E
 			if !orchestrator.NonTurnAgentCommand(dispatchCommand.Kind) {
 				a.traceSteerCommand(event.SurfaceSessionID, instanceID, dispatchCommand)
 			}
+			dispatchCommand, memoryErr := a.prepareWorkMemoryCommandLocked(event.SurfaceSessionID, instanceID, dispatchCommand)
+			if memoryErr != nil {
+				rollback := a.service.HandleCommandDispatchFailure(event.SurfaceSessionID, event.Command.CommandID, agentproto.ErrorInfo{Code: "work_memory_private_thread", Layer: "daemon", Stage: "dispatch_prepare", Message: memoryErr.Error()})
+				a.handleUIEventsLocked(ctx, rollback)
+				continue
+			}
 			dispatchCommand = a.prepareAgentCommandForDispatch(instanceID, dispatchCommand)
 			a.mu.Unlock()
 			err := a.sendAgentCommand(instanceID, dispatchCommand)
@@ -184,6 +190,17 @@ func (a *App) deliverUIEventWithContext(ctx context.Context, event eventcontract
 
 func (a *App) deliverUIEventWithContextMode(ctx context.Context, event eventcontract.Event, appLocked bool) error {
 	event = event.Normalized()
+	if !appLocked {
+		a.mu.Lock()
+	}
+	event = a.filterWorkMemoryViewsLocked(event)
+	allowed := a.workMemoryUIEventAllowedLocked(event)
+	if !appLocked {
+		a.mu.Unlock()
+	}
+	if !allowed {
+		return nil
+	}
 	event = a.enrichTemporarySessionEventLocked(event)
 	chatID := a.service.SurfaceChatID(event.SurfaceSessionID)
 	actorUserID := a.service.SurfaceActorUserID(event.SurfaceSessionID)

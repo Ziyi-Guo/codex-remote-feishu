@@ -13,7 +13,11 @@ import (
 )
 
 func (a *App) nextCommandID() string {
-	return "cmd-" + strconv.FormatUint(atomic.AddUint64(&a.commandSeq, 1), 10)
+	sequence := strconv.FormatUint(atomic.AddUint64(&a.commandSeq, 1), 10)
+	if a.daemonLifecycleID != "" {
+		return "cmd-" + a.daemonLifecycleID + "-" + sequence
+	}
+	return "cmd-" + sequence
 }
 
 func formatStatusSnapshotBinary(identity agentproto.ServerIdentity) string {

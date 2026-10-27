@@ -194,6 +194,7 @@ func (t *Translator) ObserveServer(raw []byte) (Result, error) {
 			t.Debugf("observe server %s result: request=%s thread=%s followup=%s", action, requestID, threadID, followupID)
 			return Result{
 				Suppress:        true,
+				Events:          []agentproto.Event{t.createdThreadCommandBinding(message, pending.Command, threadID)},
 				OutboundToCodex: [][]byte{followup},
 			}, nil
 		}

@@ -35,6 +35,9 @@ func (a *App) handleThreadHistoryDaemonCommandLocked(command control.DaemonComma
 		}}
 	}
 
+	if err := a.guardWorkMemoryHistoryLocked(surfaceID, instanceID, threadID); err != nil {
+		return a.service.HandleSurfaceThreadHistoryFailure(surfaceID, "work_memory_private_thread", err.Error())
+	}
 	commandID := a.nextCommandID()
 	agentCommand := agentproto.Command{
 		CommandID: commandID,

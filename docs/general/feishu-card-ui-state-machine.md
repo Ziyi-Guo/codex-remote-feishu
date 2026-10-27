@@ -1,8 +1,8 @@
 # Feishu 卡片 UI 状态机
 
 > Type: `general`
-> Updated: `2026-10-20`
-> Summary: 显式只读联网 never 群不展示授权卡；缺省限定群保留 owner 单次确认。
+> Updated: `2026-10-27`
+> Summary: 持续事项私有 thread 在历史读取与 thread 内容投影前再次核验 owner/surface；保留限定群确认卡边界。
 
 ## 1. 文档定位
 
@@ -1074,6 +1074,12 @@ MCP request 卡片当前新增的可视语义：
 确认卡仅展示本次允许、拒绝或取消，过滤会话与永久授权；额外 permission grant 只提供拒绝。服务端再次拒绝伪造的 persistent option，wrapper 也拒绝非 owner、非 pending request 或带策略修订的响应。关闭群策略后，旧卡也不能继续 dispatch。受限群隐藏连接、工作区、权限等管理动作的实际执行能力；菜单原样展示不代表这些操作获得授权。
 
 显式 `readonly-network-never` 模式不展示任何执行授权卡。command/file/permissions/MCP elicitation 请求由 wrapper 直接拒绝并写日志；不能点旧卡补充批准。业务 `request_user_input` 仍按原生待处理记录提供选择。该模式只影响配置的精确群及私有 wrapper，不改变个人群和缺省模式的卡片。
+
+### 持续事项私有 thread 的内容投影
+
+启用本地持续事项注入后，daemon 在发送 thread 内容事件前核验持久 owner/surface 归属，覆盖答复块、timeline、图片、history、thread selection、工具进度、plan、文件/差异摘要与 request 卡；`/history` 的直接 wrapper 读取也必须先过同一归属检查。非原 surface 或当前 actor 非原 owner 的内容不投影。归属未确认时只隔离内容投影，不能通过丢弃真实 turn.started/completed 阻止 core 生命周期推进。普通菜单、notice、`/new` 与 `/stop` 保留，避免拒绝旧私有 thread 后失去逃生入口。
+
+此检查不改变 callback schema、owner-card lifecycle、inline replace/append 规则，全局/工作区 thread 选择视图、target picker 及 snapshot 的私有 thread 元数据按实际 viewer 在出站副本中过滤，typed payload 同步重建；其他普通线程和新建入口保留。该机制不撤回已发送消息。新 thread 和 pending 的确切关联与故障边界见 [remote-surface-state-machine.md](./remote-surface-state-machine.md) 第 10.2 节。
 
 ## 待讨论取舍
 

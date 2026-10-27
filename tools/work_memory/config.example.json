@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "owner_id": "RUNTIME_APP_SCOPED_OWNER",
+  "works": [{"work_id": "byok", "title": "自带密钥事项", "aliases": ["BYOK"], "anchors": ["BYOK", "EXACT_REQUIREMENT_TOKEN"]}],
+  "sources": [
+    {"id": "requirements", "kind": "chat", "chat_id": "VERIFIED_CHAT_ID", "work_ids": ["byok"], "start": "2026-10-08T00:00:00+08:00", "timezone": "Asia/Shanghai", "reconcile_days": 30, "max_pages": 12, "max_messages": 600},
+    {"id": "design", "kind": "document", "doc": "https://example.invalid/docx/EXACT_REQUIREMENT_TOKEN", "work_ids": ["byok"]}
+  ],
+  "max_classification_batches": 1,
+  "publish": {"enabled": false, "owner_open_id": "LARK_CLI_APP_SCOPED_OWNER"}
+}

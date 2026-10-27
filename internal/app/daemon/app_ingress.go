@@ -771,6 +771,7 @@ func (a *App) onEvents(ctx context.Context, instanceID string, events []agentpro
 				event.Status,
 			)
 		}
+		a.noteWorkMemoryEventLocked(instanceID, event)
 		uiEvents := a.service.ApplyAgentEvent(instanceID, event)
 		a.logThreadRefreshCommand(instanceID, event, uiEvents)
 		if event.Kind == agentproto.EventTurnStarted {
@@ -844,33 +845,6 @@ func (a *App) logThreadRefreshCommand(instanceID string, event agentproto.Event,
 		summarizeRemoteStatuses(a.service.ActiveRemoteTurns()),
 		activeTurnID,
 	)
-}
-
-func shouldLogAgentEvent(event agentproto.Event) bool {
-	switch event.Kind {
-	case agentproto.EventItemDelta:
-		return false
-	default:
-		return true
-	}
-}
-
-func eventAffectsSurfaceResumeState(event agentproto.Event) bool {
-	switch event.Kind {
-	case agentproto.EventThreadsSnapshot,
-		agentproto.EventThreadDiscovered,
-		agentproto.EventThreadRuntimeStatusUpdated,
-		agentproto.EventThreadFocused,
-		agentproto.EventItemCompleted,
-		agentproto.EventTurnCompleted:
-		return true
-	default:
-		return false
-	}
-}
-
-func eventAffectsBotCapabilitySettingsState(event agentproto.Event) bool {
-	return event.Kind == agentproto.EventRequestResolved
 }
 
 func (a *App) onCommandAck(ctx context.Context, instanceID string, ack agentproto.CommandAck) {

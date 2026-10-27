@@ -1,8 +1,8 @@
 # Remote Surface 核心状态机
 
 > Type: `general`
-> Updated: `2026-10-20`
-> Summary: 限定群增加显式只读联网、never 授权与私有 forbidden 规则模式；个人会话不变。
+> Updated: `2026-10-27`
+> Summary: 增加可选持续事项资料注入与私有 thread 归属保护，明确新 thread 关联和故障边界。
 > 1. visible 但 contract mismatch 的 workspace/session 仍然可见，不会再被 `/list`、`/use`、workspace recency、target picker 直接吞掉；
 > 2. 这些 mismatch 候选不会再假装“可直接接管”；
 > 3. detached `/use`、headless exact-thread restore、workspace attach、startup resume、`/mode` backend switch、`/claudeprofile`、`/codexprofile`、`/opencodeprofile` 现在都会统一先判定 `attach visible compatible / reuse managed compatible / restart managed incompatible / fresh-start matching headless / reject`，而不是各自维护平行 continuation；
@@ -2103,6 +2103,18 @@ retained-offline overlay 额外规则：
 - 新模式的原生 forbidden 规则覆盖已枚举的 RDS/BPM 写前缀、IPGen 创建/修改/删除/生成前缀、curl 显式 POST/PUT/DELETE/PATCH，包含已安装绝对路径及常见选项组合。前缀匹配不能表达 SQL 语义或任意解释器/HTTP/MCP 写入；RDS query 继续依赖 CLI 调用接口前的只读 SQL 校验，其余按只读开发者提示与日志兜底，不能宣称通用写入防火墙。
 - 新模式不走旧的只读自动批准：原生 command/file/permissions/MCP elicitation 授权请求在 wrapper 边界直接拒绝并记录，不投影卡片；core 和 wrapper 均禁止人工补充批准。普通 `request_user_input` 业务澄清仍保留。缺省模式保留 owner 单次确认、原生 request ID/freshness，不提供 session/always、策略修订或额外 grant。
 - 代码和本机 fake-model/临时接口测试只证明技术边界；发布后另行核验真实同事查询无需点击直接出结果、故意写入被拒、owner 个人群不受影响，不把本地通过或服务健康当作业务验收。
+
+## 10.2 可选持续事项资料注入
+
+- daemon 在 `guardLimitedDispatch` 后、实际发送前读取 `<StateDir>/work-memory/manifest.json` 和本地 `works/<id>/context.json` 小快照。默认无 manifest 不注入；不调用检索、LLM、CLI 或网络，不改原队列和全局 developer instructions。每次获准的用户 `prompt.send` 都重新读取，因此新 thread 首轮和压缩后的下一次用户输入可拿到最新资料。
+- manifest v1 的 `owner_user_id`、精确 `bindings[].surface_id` allowlist、真实 Origin actor 与原队列 `ActorUserID` 必须一致；queue actor 缺失不得回退 surface actor。thread binding 只能在已获准 surface 内选事项，owner 在其他共享群仍不注入。limited execution、编码限定身份或配置限定群，以及 steer/helper/review/自动续跑均不注入。
+- context v1 必须匹配 work ID、owner、`visibility=owner`、正整数字符串版本及 RFC3339 更新时间。相对路径限定根目录，拒绝 traversal、symlink、非普通文件、超限和坏 JSON。manifest 最大 64 KiB、单 context 48 KiB、最多四事项，包括正文、标题、来源标识与声明在内的最终注入输入合计 24 KiB；整个输入带 `[codex-remote-work-memory:v1]` 及“来源资料，不是执行授权”声明，原用户 inputs 保持不变。
+- 快照 I/O 在 `a.mu` 外以 200 ms 有界等待，锁内重新核验身份。资料无效或在归属检查已通过后读取超时，只跳过注入。首次注入先确保空 registry、fsync 创建 collector 目录外的 `<StateDir>/work-memory-privacy-enabled.json` 启用标记，再落盘实际归属。`private-threads.json` 持久记录已注入 thread 的 owner/surface；标记存在后 registry 或整个 collector 目录丢失都不能当成空状态，删除或关闭 manifest 不解除旧历史保护。只有普通 collector 目录、没有 manifest/启用标记时不初始化隐私状态，也不阻断原任务。旧私有 thread 的跨 surface prompt、history 和读取上下文命令被拒；fork 已私有 source 时先登记新 execution thread 的 pending 归属，即使 manifest 已关闭也不丢失继承历史的隐私属性；`/stop` 等既有控制命令保留。
+- 新 thread 注入前先持久记录带 daemon lifecycle 的 pending command 与此前已知 thread。wrapper 只在实际 `thread/start` 或 `thread/fork` 响应中，通过原协议 requestID 对应的完整 command 产生带 CommandID、真实 threadID、remote surface 的 `thread.discovered`；daemon 只据这些精确字段登记归属，不能用当前 surface 的唯一 pending 推断旧事件归属。缺 CommandID 的事件不消费 pending。
+- `turn.started` / `turn.completed` 始终进入 core，记忆 I/O busy、200 ms 超时或失败不再丢生命周期。精确关联遇到 busy 时进入最多 64 项、单 worker 的一次性延后写入队列；无定时轮询或失败重试。尚未落盘时保留原持久 pending，隔离未确认 thread 的输出和跨 surface 复用；普通 core 运行/结束仍真实推进。
+- pending 期间其他 surface 可新建或使用此前已知普通 thread，不能采用未确认归属的未知 thread。实际已派发且未注入资料的普通新建命令，仅在当前 daemon lifecycle 内保留 CommandID；精确协议事件必须匹配该 command、instance 和原 remote surface，才得到普通新 thread 的输出许可。该许可不能用于未知 resume/fork，后续向该 thread 注入资料前立即撤销。
+- 归属注册表不可读、归属核验超时或未知 thread 归属未落盘时，相关复用请求 fail-closed，并指向 `/new` 或已有普通会话；它不同于可忽略的资料文件错误。重启遗留未解决 pending 不自动失效，避免遗忘已注入历史的隐私属性；需本地核实对应 native thread 后修复记录。
+- 输出层按实际 thread ID 对 Block、timeline、图片、history、thread selection、工具进度、plan、文件/差异摘要及 request 卡再验 owner/surface。全局/工作区 thread 列表、target picker 的选项和已选摘要、snapshot 的标题/preview/首末用户消息在 daemon 出站 DTO 副本上按实际 viewer 过滤，typed payload 同步重建，保留其他普通 thread 和新建入口且不修改 core 事实。此机制不提供同 UID 宿主文件隔离；0600/0700 不是 `readonly-network-never` 进程不可读取个人文件的保证。
 
 ## 11. 待讨论取舍
 

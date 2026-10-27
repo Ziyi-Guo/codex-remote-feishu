@@ -89,7 +89,7 @@ func (l *RawLogger) Log(entry RawEntry) {
 		if json.Valid(frame) {
 			record.Frame = redactRawJSONFrame(frame)
 		} else {
-			record.Text = string(frame)
+			record.Text = redactWorkMemoryText(string(frame))
 		}
 	}
 
@@ -168,9 +168,19 @@ func redactRawJSONValue(value any) any {
 			out = append(out, redactRawJSONValue(item))
 		}
 		return out
+	case string:
+		return redactWorkMemoryText(typed)
 	default:
 		return value
 	}
+}
+
+// Context crosses both relay and native protocol logs; redact before either is persisted.
+func redactWorkMemoryText(text string) string {
+	if strings.Contains(text, "[codex-remote-work-memory:v1]") {
+		return "<redacted:work-memory>"
+	}
+	return text
 }
 
 func isSensitiveRawField(name string) bool {

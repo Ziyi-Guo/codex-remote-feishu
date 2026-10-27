@@ -93,6 +93,7 @@ type vscodeCompatibilityCacheState struct {
 }
 
 type App struct {
+	workMemory          *workMemoryRuntime
 	service             *orchestrator.Service
 	projector           *feishu.Projector
 	gateway             feishu.Gateway
