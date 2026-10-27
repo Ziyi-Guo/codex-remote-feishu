@@ -296,13 +296,18 @@ def _pages(root, snapshot, draft, config):
             if definition.get('chat_id') in chat_ids and definition.get('chat_type_verified_at'):
                 source_type = {'p2p':'私聊','group':'群聊'}.get(definition.get('chat_type'),source_type)
                 break
+        modification = ''
+        if source.get('modified_at') and source.get('modified_at') != source.get('occurred_at'):
+            changed = datetime.fromisoformat(source['modified_at'].replace('Z','+00:00')).strftime('%Y-%m-%d %H:%M %z')
+            modification = '；此版修改时间：' + changed
         entries.append('- [' + title + '](<' + source['url'] + '>)\n  人物：' + actor +
                        '；来源类型：' + source_type +
-                       '；发生时间：' + occurred +
+                       '；发生时间：' + occurred + modification +
                        '\n  <!-- collected_at: ' + json.dumps(source.get('observed_at'), ensure_ascii=False) + ' -->' +
                        '\n  <!-- source_refs: ' + json.dumps([dict(source_id=key[0], revision=key[1])], ensure_ascii=False).replace('--', '\\u002d\\u002d') + ' -->')
     pages['sources.md'] = ('# 来源\n\n仅本人可见。来源类型只说明材料来自会议、群聊、私聊或文档，'
-        '不能据此自动提高陈述的权威；决定以明确确认及其阶段、范围为准。\n\n'
+        '不能据此自动提高陈述的权威；决定以明确确认及其阶段、范围为准。'
+        '已编辑消息的创建时间不能单独证明此版文字当时已经存在。\n\n'
         + ('\n\n'.join(entries) or '暂无引用来源。'))
     return {path: text + '\n\n**人工补充**\n\n<!-- human:start -->\n<!-- human:end -->\n' for path, text in pages.items()}
 

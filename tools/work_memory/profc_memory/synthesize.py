@@ -36,6 +36,7 @@ PROMPT = '''你在整理一份供人和agent共同阅读的项目档案。只用
 不要把提议写成已定，不把部署、测试报告或代码完成写成业务验收成功。新阶段扩展不是推翻原MVP。
 每段都用确切source_id/revision引用支持材料；不要写URL，程序将生成原始链接。不得把采集时间当作发生时间。
 证据可能是时间未知的文档当前快照；这种材料不能证明过去某天已如此。当前资料不足时明确“资料未明确”或“尚待核验”。
+消息的occurred_at是最初发送时间；若modified_at更晚，不能单靠创建时间断言修改后的文字当时已经存在，应明确版本边界。
 historical_only_source=true表示同一来源已有可证明更新的版本，该旧版本只可解释历史，不能作为现状或有效决策栏的依据。
 决策按问题组织，body说明决定/适用范围、当时考虑和依据、后续反馈。选项、因果或确认人没在证据出现就写未明确，不能补故事。
 只有明确纠正且同阶段同范围才写被替代；superseded_by只引用本次真实decision slug，否则空字符串。
@@ -112,7 +113,7 @@ def synthesize(snapshot, *, previous=None, runner=None, timeout=180):
         if not events or len(events) > 200:
             raise ValueError('limit_exceeded')
         payload = dict(work_id=snapshot['work_id'],title=snapshot['title'],events=events,
-                       source_metadata=[{key:s.get(key) for key in ('source_id','revision','kind','occurred_at','observed_at','actor')}
+                       source_metadata=[{key:s.get(key) for key in ('source_id','revision','kind','occurred_at','modified_at','observed_at','actor')}
                                         for s in sources.values()], previous=previous)
         encoded = json.dumps(payload,ensure_ascii=False)
         if len(encoded) > 100000 or sanitize_content(encoded)[1]:
