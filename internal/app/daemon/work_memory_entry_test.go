@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -79,7 +80,7 @@ func TestWorkMemoryOnDemandUsesThreadInstructionsWithoutProjectInputs(t *testing
 }
 
 func TestWorkMemoryOnDemandFailClosedEntryGates(t *testing.T) {
-	for _, name := range []string{"wrong_actor", "wrong_surface", "no_policy", "unknown_mode", "invalid_guide", "external_guide"} {
+	for _, name := range []string{"wrong_actor", "wrong_surface", "unknown_mode", "invalid_guide", "external_guide"} {
 		t.Run(name, func(t *testing.T) {
 			a, c, root := memoryEntryFixture(t)
 			switch name {
@@ -87,8 +88,6 @@ func TestWorkMemoryOnDemandFailClosedEntryGates(t *testing.T) {
 				c.Origin.UserID = "other"
 			case "wrong_surface":
 				memoryWrite(t, root, "manifest.json", map[string]any{"schema_version": 1, "enabled": true, "mode": "on_demand", "guide_path": "runtime-guide.json", "owner_user_id": "owner", "bindings": []any{map[string]any{"surface_id": "other"}}})
-			case "no_policy":
-				c.CodexResume = nil
 			case "unknown_mode", "external_guide":
 				mode, guide := "on_demand", "runtime-guide.json"
 				if name == "unknown_mode" {
@@ -105,5 +104,21 @@ func TestWorkMemoryOnDemandFailClosedEntryGates(t *testing.T) {
 				t.Fatalf("ineligible entry escaped: %+v", sent)
 			}
 		})
+	}
+}
+
+func TestWorkMemoryOnDemandNativeDefaultUsesIndependentEntry(t *testing.T) {
+	a, c, _ := memoryEntryFixture(t)
+	c.CodexResume = nil
+	sent := memoryDispatch(t, a, c)
+	if len(sent) != 1 || sent[0].CodexResume != nil || !reflect.DeepEqual(sent[0].Prompt.Inputs, c.Prompt.Inputs) {
+		t.Fatalf("native default was changed: %+v", sent)
+	}
+	b, _ := json.Marshal(sent[0])
+	var wire map[string]any
+	_ = json.Unmarshal(b, &wire)
+	instruction, _ := wire["developerInstructionAppend"].(string)
+	if !strings.Contains(instruction, "项目档案 CLI") {
+		t.Fatal("native default silently lost entry")
 	}
 }

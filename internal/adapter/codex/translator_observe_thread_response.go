@@ -41,7 +41,7 @@ func (t *Translator) observePendingThreadResponse(requestID string, message map[
 			t.knownThreadCWD[threadID] = pathcanon.Native(pending.Command.Target.CWD)
 		}
 		t.noteDeveloperInstructionsApplied(threadID, pending.Command.CodexResume)
-		followup, followupID, err := t.directTurnStart(threadID, pending.Command, true)
+		followup, followupID, err := t.startPromptAfterEntry(threadID, pending.Command, true)
 		if err != nil {
 			return Result{}, err
 		}
@@ -108,7 +108,7 @@ func (t *Translator) observePendingThreadResponse(requestID string, message map[
 				OutboundToCodex: [][]byte{followup},
 			}, nil
 		default:
-			followup, followupID, err := t.directTurnStart(pending.ThreadID, pending.Command, false)
+			followup, followupID, err := t.startPromptAfterEntry(pending.ThreadID, pending.Command, false)
 			if err != nil {
 				return Result{}, err
 			}

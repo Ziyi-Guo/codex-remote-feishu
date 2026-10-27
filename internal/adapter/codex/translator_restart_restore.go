@@ -18,6 +18,7 @@ func (t *Translator) BuildChildRestartRestoreFrame(commandID string) ([]byte, st
 		return nil, "", false, nil
 	}
 	delete(t.appliedDeveloperInstructions, threadID)
+	delete(t.appliedDeveloperAppend, threadID)
 	cwd := strings.TrimSpace(t.knownThreadCWD[threadID])
 	requestID := t.NextRequest("child-restart-restore")
 	t.pendingChildRestartRestore[requestID] = pendingChildRestartRestore{

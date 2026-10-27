@@ -22,6 +22,9 @@ func (t *Translator) ObserveServer(raw []byte) (Result, error) {
 
 	if id, ok := message["id"]; ok {
 		requestID := fmt.Sprint(id)
+		if pending, ok := t.pendingDeveloperAppend[requestID]; ok {
+			return t.observeDeveloperAppendResponse(requestID, pending, message)
+		}
 		if threadID := lookupString(message, "result", "thread", "id"); threadID != "" {
 			t.mergeObservedThread(threadID, lookupString(message, "result", "modelProvider"), lookupString(message, "result", "model"), lookupString(message, "result", "reasoningEffort"))
 		}

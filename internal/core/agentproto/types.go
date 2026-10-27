@@ -252,6 +252,8 @@ type Command struct {
 	Review       ReviewRequest      `json:"review,omitempty"`
 	Goal         GoalCommand        `json:"goal,omitempty"`
 	ShellCommand ShellCommand       `json:"shellCommand,omitempty"`
+
+	DeveloperInstructionAppend string `json:"developerInstructionAppend,omitempty"`
 }
 
 // ShellCommand is a user-initiated command sent to a backend's native

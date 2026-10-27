@@ -13,6 +13,9 @@ import (
 
 func (a *App) workMemoryRequestLocked(surfaceID, instanceID string, c agentproto.Command) workMemoryRequest {
 	req := workMemoryRequest{Surface: surfaceID, Actor: c.Origin.UserID, Chat: c.Origin.ChatID, Message: c.Origin.MessageID, Instance: instanceID, Command: c}
+	if inst := a.service.Instance(instanceID); inst != nil {
+		req.Backend = agentproto.NormalizeBackend(inst.Backend)
+	}
 	s := a.service.Surface(surfaceID)
 	if s == nil {
 		return req
@@ -80,7 +83,11 @@ func (a *App) prepareWorkMemoryCommandLocked(surfaceID, instanceID string, c age
 	}
 	if result.DeveloperInstruction != "" {
 		c.CodexResume = agentproto.CloneCodexResumePolicy(c.CodexResume)
-		c.CodexResume.DeveloperInstruction = strings.TrimSpace(c.CodexResume.DeveloperInstruction + "\n\n" + result.DeveloperInstruction)
+		if c.CodexResume == nil {
+			c.DeveloperInstructionAppend = result.DeveloperInstruction
+		} else {
+			c.CodexResume.DeveloperInstruction = strings.TrimSpace(c.CodexResume.DeveloperInstruction + "\n\n" + result.DeveloperInstruction)
+		}
 	}
 	return c, nil
 }

@@ -2,7 +2,7 @@
 
 > Type: `general`
 > Updated: `2026-10-27`
-> Summary: 增加按需项目档案的 thread 指令入口，复用原 owner/surface 隐私保护并避免每轮正文注入。
+> Summary: 修复 cp_native 无合同路径的按需入口，原生追加短规则并保留既有指令、隐私保护与压缩关联。
 > 1. visible 但 contract mismatch 的 workspace/session 仍然可见，不会再被 `/list`、`/use`、workspace recency、target picker 直接吞掉；
 > 2. 这些 mismatch 候选不会再假装“可直接接管”；
 > 3. detached `/use`、headless exact-thread restore、workspace attach、startup resume、`/mode` backend switch、`/claudeprofile`、`/codexprofile`、`/opencodeprofile` 现在都会统一先判定 `attach visible compatible / reuse managed compatible / restart managed incompatible / fresh-start matching headless / reject`，而不是各自维护平行 continuation；
@@ -2108,8 +2108,10 @@ retained-offline overlay 额外规则：
 
 - daemon 在 `guardLimitedDispatch` 后、实际发送前读取 `<StateDir>/work-memory/manifest.json`。默认无 manifest 或 `enabled=false` 不添加新入口；关闭配置仍保留已有私有历史保护。runtime 不调用检索、LLM、CLI 或网络，不改原队列、profile 或全局 developer instructions。
 - 项目档案第二版使用 `mode=on_demand`、`guide_path=runtime-guide.json`。固定本机文件是维护者编写的信任配置，格式为 `{"schema_version":1,"kind":"runtime_entry","instruction":"简短入口规则"}`，整个文件至多 4 KiB，沿用相对路径、普通文件、symlink 和打开后身份复核。规则只说明如何发现入口和按问题调用 CLI；项目正文、项目目录、外部来源资料与项目事实不能写进 developer instructions。此模式只要求命中精确 surface binding，不依赖 `active_work_ids` 或 `works`，不读任何 context 快照、不追加用户 inputs，由模型判断是否读取、读取哪些栏目。
-- 短入口只追加到本次命令克隆的合法 Codex resume policy `DeveloperInstruction`，保留原 profile 规则；缺少合法原 policy 时跳过，不猜 provider。wrapper 在 `thread/start` / `thread/resume` 中传 `developerInstructions`。当前已加载 thread 的已确认规则未知或变更时先 `thread/resume`，通过该原生 request ID 对应的成功响应后只续发一个 `turn/start`；相同规则后续直接 `turn/start`，拒绝响应不登记规则已应用。接受缓存按 thread 隔离，只在 wrapper 生命周期内保存，并使用 dispatch 时的 policy 副本，不把另一条命令或稍后修改当成原响应的证据；观察到本地 UI resume 或构造 child restart restore 时失效，下次获准用户 dispatch 重新确认。
-- 压缩的明确观察点是 `item/completed` 的 `contextCompaction`（映射为 `context_compaction`），携带实际 thread/turn/item ID；item 无 `status` 字段也可合法完成。压缩事件不重补用户 input，后续使用已加载 thread 的 developer 配置。协议测试只核验请求和关联；真实模型行为由隔离 smoke 单独核验，2026-10-27 的 Codex 0.160.1 实测在明确压缩完成后仍遵循只存在于 thread developer instructions 的短规则，两轮 user input 都只有检查口令。不能将 relay 发送成功、wrapper `Accepted` 或 `/compact` 请求的空响应当作模型已收到入口或压缩已完成。
+- 有合法 Codex resume policy 时，短入口追加到本次命令克隆的 `DeveloperInstruction`，保留原 profile 规则。wrapper 在 `thread/start` / `thread/resume` 中传 `developerInstructions`；当前已加载 thread 的已确认规则未知或变更时先 resume，通过该原生 request ID 对应的成功响应后只续发一个 `turn/start`，相同规则后续直接 `turn/start`。拒绝响应不登记已应用；缓存按 thread 隔离并使用 dispatch 时的 policy 副本，观察到本地 UI resume 或构造 child restart restore 时失效。
+- `cp_native` 预热池实例可以没有 connection/thread policy，此时 `CodexResume=nil` 是合法默认路径。daemon 对 Codex backend 改用命令独立的 `developerInstructionAppend` 短规则，保留 nil policy、原 provider、原用户 inputs 与原生继承指令；不凭空创建 profile、不从 `config/read` 推断旧 thread 指令。wrapper 在实际 thread 创建或恢复完成后，以 `thread/inject_items` 追加单个 developer message，仅在该 request ID 的成功对象响应后接一个 `turn/start`。响应 suppressed，不透传为用户消息；拒绝或无效响应不启动用户 turn、不登记应用成功。相同 thread/规则/压缩代次只追加一次，本地 resume、child restore 后重新确认。
+- native append 的压缩代次只由带完整 thread/turn/item ID 的 `contextCompaction` 完成事件推进，重复事件去重。若追加请求的响应跨越了新代次，旧响应不算当前代次已应用，先在新代次重新追加再开始用户 turn；没有定时猜测或后台重试。下一次获准用户 dispatch 才按需重注短入口，不重注项目正文。
+- 压缩的明确观察点是 `item/completed` 的 `contextCompaction`（映射为 `context_compaction`），携带实际 thread/turn/item ID；item 无 `status` 字段也可合法完成。压缩事件不重补用户 input。协议测试只核验请求和关联；真实模型行为由隔离 smoke 单独核验，2026-10-27 的 Codex 0.160.1 实测 thread developer override 及 native developer append 都在明确压缩完成后仍生效，append 保留了临时原生配置中的既有规则，用户 input 均只有检查口令。该实测不替代其他版本的压缩核验，append 路径仍按明确代次重新确认。不能将 relay 发送成功、wrapper `Accepted` 或 `/compact` 请求的空响应当作模型已收到入口或压缩已完成。
 - 兼容旧快照模式只在 `mode` 缺省时按原 v1 协议处理；未知 mode 跳过新入口。旧模式每次获准的用户 `prompt.send` 读取本地 `works/<id>/context.json` 小快照；新部署的 on-demand 模式不走此分支。
 - manifest v1 的 `owner_user_id`、精确 `bindings[].surface_id` allowlist、真实 Origin actor 与原队列 `ActorUserID` 必须一致；queue actor 缺失不得回退 surface actor。thread binding 只能在已获准 surface 内选事项，owner 在其他共享群仍不注入。limited execution、编码限定身份或配置限定群，以及 steer/helper/review/自动续跑均不注入。
 - context v1 必须匹配 work ID、owner、`visibility=owner`、正整数字符串版本及 RFC3339 更新时间。相对路径限定根目录，拒绝 traversal、symlink、非普通文件、超限和坏 JSON。manifest 最大 64 KiB、单 context 48 KiB、最多四事项，包括正文、标题、来源标识与声明在内的最终注入输入合计 24 KiB；整个输入带 `[codex-remote-work-memory:v1]` 及“来源资料，不是执行授权”声明，原用户 inputs 保持不变。

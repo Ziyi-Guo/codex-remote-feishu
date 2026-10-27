@@ -36,6 +36,11 @@ type Translator struct {
 
 	appliedDeveloperInstructions map[string]string
 
+	appliedDeveloperAppend         map[string]developerAppendState
+	pendingDeveloperAppend         map[string]pendingDeveloperAppend
+	developerAppendEpoch           map[string]int
+	seenDeveloperAppendCompactions map[string]bool
+
 	latestThreadStartParams map[string]any
 	latestTurnStartTemplate map[string]any
 	turnStartByThread       map[string]map[string]any
@@ -179,5 +184,10 @@ func NewTranslator(instanceID string) *Translator {
 		reasoningSummaryIndexes:    map[string]map[int]bool{},
 
 		appliedDeveloperInstructions: map[string]string{},
+
+		appliedDeveloperAppend:         map[string]developerAppendState{},
+		pendingDeveloperAppend:         map[string]pendingDeveloperAppend{},
+		developerAppendEpoch:           map[string]int{},
+		seenDeveloperAppendCompactions: map[string]bool{},
 	}
 }

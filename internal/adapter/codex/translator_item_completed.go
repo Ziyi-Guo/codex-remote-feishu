@@ -18,6 +18,9 @@ func (t *Translator) observeItemCompleted(message map[string]any) Result {
 		lookupString(message, "params", "itemType"),
 	))
 	metadata := extractItemMetadata(itemKind, item)
+	if itemKind == "context_compaction" {
+		t.noteDeveloperAppendCompaction(threadID, turnID, itemID)
+	}
 	events := []agentproto.Event{}
 	if itemKind == "reasoning" {
 		events = append(events, t.reasoningSummaryFallbackEvents(threadID, turnID, itemID, item)...)

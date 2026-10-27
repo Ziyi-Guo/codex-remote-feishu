@@ -415,7 +415,7 @@ func (t *Translator) translatePromptSendResumeOrDirect(command agentproto.Comman
 		}
 		return [][]byte{append(bytes, '\n')}, nil
 	}
-	payload, requestID, err := t.directTurnStart(command.Target.ThreadID, command, false)
+	payload, requestID, err := t.startPromptAfterEntry(command.Target.ThreadID, command, false)
 	if err != nil {
 		return nil, err
 	}

@@ -44,6 +44,7 @@ type workMemoryContext struct {
 }
 type workMemoryRequest struct {
 	Surface, Actor, QueueActor, Chat, Message, Instance string
+	Backend                                             agentproto.Backend
 	Authorized                                          bool
 	Eligible                                            bool
 	Ordinary                                            bool

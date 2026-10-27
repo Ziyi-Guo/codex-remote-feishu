@@ -10,7 +10,7 @@ import (
 // This fixed local configuration is operator-authored; project archives never
 // become developer instructions. Retrieval remains an agent tool decision.
 func (r *workMemoryRuntime) prepareEntry(root *os.Root, path string, owners workMemoryOwners, req workMemoryRequest, inheritedPrivate bool) workMemoryResult {
-	if path != "runtime-guide.json" || agentproto.NormalizeCodexResumePolicy(req.Command.CodexResume) == nil {
+	if path != "runtime-guide.json" || req.Backend != agentproto.BackendCodex {
 		return workMemoryResult{}
 	}
 	var guide struct {
