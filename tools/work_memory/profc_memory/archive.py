@@ -218,7 +218,7 @@ def _source_map(root, snapshot):
     return sources
 
 
-def _pages(root, snapshot, draft, config):
+def _pages(root, snapshot, draft, config, previous=None):
     sections = draft.get('sections')
     if not isinstance(sections, dict) or set(sections) != set(SECTIONS):
         raise ValueError('draft must contain exactly the five dossier sections')
@@ -282,11 +282,20 @@ def _pages(root, snapshot, draft, config):
         pages['decisions/' + slug + '.md'] = ('# ' + _plain(decision.get('title')) + '\n\n状态：' + label +
             ('；后续问题档案：[查看](' + target + '.md)' if target else '') + '\n\n' +
             paragraphs(decision.get('body'), decision.get('source_refs')))
+    retained=[]
+    for name,text in sorted((previous or {}).items()):
+        if name.startswith('decisions/') and name not in pages:
+            pages[name]=text;slugs.add(Path(name).stem)
+            retained.append('['+_label(text.splitlines()[0].removeprefix('# '),'已有决定')+']('+name+')')
+            for value in re.findall(r'<!-- source_refs: (.*?) -->',HUMAN.sub('',text)):
+                references(json.loads(value))
     if any(d.get('superseded_by') and d['superseded_by'] not in slugs for d in decisions):
         raise ValueError('decision replacement must exist in this draft')
     if decisions:
         links = '；'.join('[' + _plain(d['title']) + '](decisions/' + d['slug'] + '.md)' for d in decisions)
         pages['home.md'] = pages['home.md'].replace('\n\n## 近期关注', '\n\n决策过程：' + links + '\n\n## 近期关注', 1)
+    if retained:
+        pages['home.md']=pages['home.md'].replace('\n\n## 近期关注','\n\n此前已记录的决策过程：'+'；'.join(retained)+'\n\n## 近期关注',1)
     entries = []
     for number, (key, source) in enumerate(sorted(used.items()),1):
         title, actor, occurred = _source_display(source)
@@ -312,7 +321,7 @@ def _pages(root, snapshot, draft, config):
         '不能据此自动提高陈述的权威；决定以明确确认及其阶段、范围为准。'
         '已编辑消息的创建时间不能单独证明此版文字当时已经存在。\n\n'
         + ('\n\n'.join(entries) or '暂无引用来源。'))
-    return {path: text + '\n\n**人工补充**\n\n<!-- human:start -->\n<!-- human:end -->\n' for path, text in pages.items()}
+    return {path: text if HUMAN.search(text) else text + '\n\n**人工补充**\n\n<!-- human:start -->\n<!-- human:end -->\n' for path, text in pages.items()}
 
 
 def _current(path, owner, work_id=None):
@@ -362,7 +371,6 @@ def apply_dossier(state_dir, snapshot, draft, *, now=None):
         raise PermissionError('only matching owner-private snapshots are supported')
     stamp = _stamp(now)
     reason = _plain(draft.get('reason', '根据现有资料重建'))
-    rendered = _pages(root, snapshot, draft, config)
     with _lock(root, create=True) as directory:
         _recover(directory, work_id, config['owner_id'])
         target = directory / work_id
@@ -371,6 +379,7 @@ def apply_dossier(state_dir, snapshot, draft, *, now=None):
             old, pages, drift = _current(target, config['owner_id'])
             if drift:
                 return dict(status='drift', work_id=work_id, version=old['version'], paths=drift)
+        rendered = _pages(root, snapshot, draft, config, previous=pages)
         for name, text in list(rendered.items()):
             if name in pages:
                 rendered[name] = HUMAN.sub(lambda _: '<!-- human:start -->' + _human(pages[name]) + '<!-- human:end -->', text)

@@ -226,6 +226,18 @@ class ArchiveTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.apply()
         self.assertEqual(before,(self.root/'dossiers/profc/home.md').read_bytes())
 
+    def test_omitting_a_decision_does_not_withdraw_its_record_or_sources(self):
+        self.draft['decisions'][0]['body'][0]['source_refs']=[dict(source_id='doc:one',revision='2')]
+        self.apply()
+        self.draft['decisions']=[]
+        self.draft['sections']['决策'][0]['text']='本轮仅更新项目首页。'
+        self.apply()
+        path=self.root/'dossiers/profc/decisions/permission.md'
+        self.assertTrue(path.exists())
+        self.assertIn('授权范围待确认',read_dossier(self.root,'profc','owner','decision:permission')['content'])
+        self.assertIn('decisions/permission.md',read_dossier(self.root,'profc','owner')['content'])
+        self.assertIn('"revision": "2"',(self.root/'dossiers/profc/sources.md').read_text())
+
     def test_missing_managed_page_is_drift_and_changed_clock_is_not_a_revision(self):
         self.apply()
         result = apply_dossier(self.root, self.snapshot, self.draft, now='2026-10-28T00:00:00Z')
