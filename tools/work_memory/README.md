@@ -27,7 +27,7 @@ PYTHONPATH=tools/work_memory PYTHONDONTWRITEBYTECODE=1 \
   --session-id "$NATIVE_THREAD_ID" --max-chars 1600
 ```
 
-query只返回项目候选和入口，不读项目正文。确认事项后再读相关栏目，必要时使用 `--section decision:<slug>` 或 sources。无关问题不发起读取；询问进展、可用性或完成度，应同时核对“现状”和“问题”。
+query只返回项目候选和入口，不读项目正文。确认事项后再读相关栏目，必要时使用 `--section decision:<slug>` 或 sources；`source:<依据序号>`读取本机保存的确切原文版本，history读取档案构建与修订历史。无关问题不发起读取；询问进展、可用性或完成度，应同时核对“现状”和“问题”。
 
 相同session/事项/栏目/版本/正文不重复返回。切换事项、版本或人工补充变化会刷新；压缩导致相关正文不再在上下文时传 `--after-compaction`。字符预算按完整段落装入并返回truncated，不能把省略的材料当成不存在。模型token开销需从真实调用回执另外核对。
 

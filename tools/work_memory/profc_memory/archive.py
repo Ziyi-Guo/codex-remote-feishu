@@ -194,6 +194,9 @@ def _source_map(root, snapshot):
         row = db.execute("SELECT value FROM meta WHERE key='owner_id'").fetchone()
         if not row or row[0] != snapshot['owner_id']:
             raise PermissionError('ledger owner mismatch')
+        revision=db.execute('SELECT version FROM works WHERE work_id=?',(snapshot['work_id'],)).fetchone()
+        if not revision or snapshot.get('revision') != revision[0]:
+            raise ValueError('stale dossier build snapshot')
         if not db.execute('SELECT 1 FROM works WHERE work_id=?', (snapshot['work_id'],)).fetchone():
             raise ValueError('snapshot work is not in ledger')
         for source in snapshot.get('sources', []):
@@ -285,7 +288,7 @@ def _pages(root, snapshot, draft, config):
         links = '；'.join('[' + _plain(d['title']) + '](decisions/' + d['slug'] + '.md)' for d in decisions)
         pages['home.md'] = pages['home.md'].replace('\n\n## 近期关注', '\n\n决策过程：' + links + '\n\n## 近期关注', 1)
     entries = []
-    for key, source in sorted(used.items()):
+    for number, (key, source) in enumerate(sorted(used.items()),1):
         title, actor, occurred = _source_display(source)
         source_type = '文档' if source.get('kind') == 'document' else '聊天（类型未核实）'
         if source.get('kind') == 'document' and title.startswith(('文字记录','会议纪要','妙记')):
@@ -300,7 +303,7 @@ def _pages(root, snapshot, draft, config):
         if source.get('modified_at') and source.get('modified_at') != source.get('occurred_at'):
             changed = datetime.fromisoformat(source['modified_at'].replace('Z','+00:00')).strftime('%Y-%m-%d %H:%M %z')
             modification = '；此版修改时间：' + changed
-        entries.append('- [' + title + '](<' + source['url'] + '>)\n  人物：' + actor +
+        entries.append('- 依据 ' + str(number) + '：[' + title + '](<' + source['url'] + '>)\n  人物：' + actor +
                        '；来源类型：' + source_type +
                        '；发生时间：' + occurred + modification +
                        '\n  <!-- collected_at: ' + json.dumps(source.get('observed_at'), ensure_ascii=False) + ' -->' +
@@ -435,12 +438,30 @@ def read_dossier(state_dir, work_id, requester_id, section='home', *, audience='
         if not target.exists() and not target.is_symlink():
             target = directory / ('.backup-' + work_id)
         manifest, pages, drift = _current(target, config['owner_id'], work_id)
+        source_revision = None
         if drift:
             content = ''
         elif section == 'home':
             content = pages['home.md']
         elif section == 'sources':
             content = pages['sources.md']
+        elif isinstance(section,str) and re.fullmatch(r'source:[1-9][0-9]{0,2}',section):
+            refs=[json.loads(value)[0] for value in re.findall(r'<!-- source_refs: (.*?) -->',pages['sources.md'])]
+            number=int(section.split(':',1)[1])
+            if number>len(refs):raise ValueError('unknown source position')
+            ref=refs[number-1];_private(root/'ledger.sqlite3')
+            with closing(sqlite3.connect((root/'ledger.sqlite3').as_uri()+'?mode=ro',uri=True)) as db:
+                row=db.execute('''SELECT s.data FROM sources s JOIN source_works w
+                    ON s.source_id=w.source_id AND s.revision=w.revision
+                    WHERE s.source_id=? AND s.revision=? AND w.work_id=?''',
+                    (ref['source_id'],ref['revision'],work_id)).fetchone()
+            if not row:raise ValueError('source is not bound to this dossier')
+            source=json.loads(row[0])
+            if source.get('owner_id')!=config['owner_id'] or source.get('visibility')!='owner':
+                raise PermissionError('source owner mismatch')
+            title,actor,occurred=_source_display(source);source_revision=source['revision']
+            content=('# 已保存的来源快照\n\n'+title+'\n人物：'+actor+'；发生时间：'+occurred
+                     +'\n原始链接：'+source.get('url','')+'\n\n原文：\n'+source['content'])
         elif section == 'decisions':
             content = '\n\n'.join(text for name, text in sorted(pages.items()) if name.startswith('decisions/'))
         elif section == 'history':
@@ -463,8 +484,12 @@ def read_dossier(state_dir, work_id, requester_id, section='home', *, audience='
             content = match[1] if match else ''
         else:
             raise ValueError('unknown dossier section')
-        content = re.sub(r'<!--.*?-->', '', content, flags=re.S).strip()
+        if not drift and section != 'home':
+            notes=_human(pages['home.md']).strip()
+            if notes and notes not in content:
+                content+='\n\n人工补充（需与来源核对）：\n'+notes
+        content = sanitize_content(re.sub(r'<!--.*?-->', '', content, flags=re.S).strip())[0]
         return dict(status='drift' if drift else 'ok', work_id=work_id, title=manifest['title'],
                     version=manifest['version'], updated_at=manifest['updated_at'], section=section,
                     content=content, content_hash=hashlib.sha256(content.encode()).hexdigest(),
-                    receipt=manifest['receipt'], drift=drift)
+                    receipt=manifest['receipt'], drift=drift,source_revision=source_revision)

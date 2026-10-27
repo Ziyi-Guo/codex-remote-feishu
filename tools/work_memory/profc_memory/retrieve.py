@@ -178,7 +178,8 @@ def retrieve(state_dir, *, requester_id, audience='owner', work_id=None, query=N
     if requester_id != owner or audience != 'owner':
         raise PermissionError('forbidden')
     decision_section = isinstance(section, str) and re.fullmatch(r'decision:[a-z0-9_-]{1,64}', section)
-    if ((section not in SECTIONS and not decision_section) or type(max_chars) is not int or max_chars < 0
+    source_section = isinstance(section,str) and re.fullmatch(r'source:[1-9][0-9]{0,2}',section)
+    if ((section not in SECTIONS and not decision_section and not source_section) or type(max_chars) is not int or max_chars < 0
             or type(after_compaction) is not bool):
         raise ValueError('invalid_request')
     for value in (query, session_id):

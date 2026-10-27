@@ -118,6 +118,9 @@ class ArchiveTests(unittest.TestCase):
         visible = __import__('re').sub(r'<!--.*?-->', '', source, flags=__import__('re').S)
         self.assertNotIn('doc:one', visible)
         self.assertNotIn('revision', visible)
+        raw=read_dossier(self.root,'profc','owner','source:1')
+        self.assertIn('授权范围待确认',raw['content'])
+        self.assertEqual('1',raw['source_revision'])
         self.assertEqual('1', read_dossier(self.root, 'profc', 'owner')['version'])
         self.assertIn('decisions/permission.md', text)
         detail = read_dossier(self.root, 'profc', 'owner', section='decision:permission')
@@ -203,6 +206,25 @@ class ArchiveTests(unittest.TestCase):
         before = home.read_bytes()
         self.assertEqual('drift', self.apply()['status'])
         self.assertEqual(before, home.read_bytes())
+
+    def test_human_notes_are_visible_in_selected_sections_and_credentials_are_redacted(self):
+        self.apply()
+        home=self.root/'dossiers/profc/home.md'
+        home.write_text(home.read_text().replace('<!-- human:start -->\n','<!-- human:start -->\n授权范围有更新，先核对。password=synthetic-value\n'))
+        content=read_dossier(self.root,'profc','owner','现状')['content']
+        self.assertIn('授权范围有更新，先核对',content)
+        self.assertNotIn('synthetic-value',content)
+        self.assertIn('synthetic-value',home.read_text())
+
+    def test_old_build_snapshot_cannot_replace_newer_source_state(self):
+        self.apply()
+        before=(self.root/'dossiers/profc/home.md').read_bytes()
+        source=dict(self.snapshot['sources'][0],revision='3',content='更新的授权范围。')
+        source.pop('work_ids',None)
+        self.ledger.ingest_source(source,['profc'])
+        self.draft['sections']['现状'][0]['text']='基于旧快照的旧结论。'
+        with self.assertRaises(ValueError):self.apply()
+        self.assertEqual(before,(self.root/'dossiers/profc/home.md').read_bytes())
 
     def test_missing_managed_page_is_drift_and_changed_clock_is_not_a_revision(self):
         self.apply()
