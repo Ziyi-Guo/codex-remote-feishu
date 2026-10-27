@@ -348,6 +348,9 @@ func (s *Service) handleReactionCreated(surface *state.SurfaceConsoleRecord, act
 	if surface == nil {
 		return nil
 	}
+	if action.ActorUserID != "" && action.ActorUserID != surface.ActorUserID {
+		return nil
+	}
 	if isApplauseReaction(action.ReactionType) {
 		return s.handleApplauseReaction(surface, action)
 	}
@@ -365,6 +368,9 @@ func (s *Service) handleReactionCreated(surface *state.SurfaceConsoleRecord, act
 	for _, candidate := range s.steerCandidates(surface, activeThreadID) {
 		if !queueItemHasSourceMessage(candidate.Item, targetMessageID) {
 			continue
+		}
+		if candidate.Item.ActorUserID != "" && candidate.Item.ActorUserID != surface.ActorUserID {
+			return nil
 		}
 		if state.EffectiveInstanceBackend(inst) == agentproto.BackendOpenCode {
 			return notice(surface, "opencode_steer_not_supported", opencodeSteerUnsupportedNoticeText)
@@ -390,6 +396,9 @@ func (s *Service) handleApplauseReaction(surface *state.SurfaceConsoleRecord, ac
 		item := surface.QueueItems[queueID]
 		if item == nil || item.Status != state.QueueItemQueued || strings.TrimSpace(item.SourceMessageID) != targetMessageID {
 			continue
+		}
+		if item.ActorUserID != "" && item.ActorUserID != surface.ActorUserID {
+			return nil
 		}
 		if queuedItemExecutionThreadID(item) != activeThreadID {
 			return nil

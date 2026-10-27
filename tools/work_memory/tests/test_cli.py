@@ -4,11 +4,15 @@ import io
 import json
 import os
 from pathlib import Path
+import signal
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
 from profc_memory.cli import CLIError, execute, main
+from profc_memory.classify import INSTRUCTIONS
 from profc_memory.ledger import Ledger
 
 NOW = '2026-10-27T02:00:00+00:00'
@@ -118,6 +122,40 @@ class CLITests(unittest.TestCase):
         with self.ledger() as ledger:
             self.assertEqual(1, len(ledger.pending_sources()))
 
+    @patch('profc_memory.classify.subprocess.run')
+    def test_cli_classifies_38519_character_meeting_once_with_only_runner_mocked(self, runner):
+        quote = 'IPGen CLI 会议范围仍待确认。'
+        content = quote + '\n' + ('会议记录尚待确认。\n' * 4000)
+        content = content[:38518] + '\n'
+        self.assertEqual(38519, len(content))
+        self.config.update(works=[dict(work_id='ipgen-cli', title='IPGen CLI', aliases=['CLI'])], sources=[])
+        self.save()
+        meeting = dict(source('document:synthetic_cli_meeting', content), kind='document',
+                       object_id='synthetic_cli_meeting', occurred_at=None, redacted=False)
+        meeting.pop('modified_at')
+        with self.ledger() as ledger:
+            ledger.register_work('ipgen-cli', 'IPGen CLI', ['CLI'])
+            ledger.ingest_source(meeting, ['ipgen-cli'])
+        def run(argv, **kwargs):
+            payload = json.loads(kwargs['input'][len(INSTRUCTIONS):])
+            self.assertEqual(content, payload['sources'][0]['content'])
+            self.assertLessEqual(len(kwargs['input']) - len(INSTRUCTIONS), 64000)
+            event = dict(work_id='ipgen-cli', kind='open_question', claim=quote, quote=quote,
+                         occurred_at=None, actor='unknown', stage='scope', facet='status',
+                         supersedes=[], status='accepted')
+            output = dict(complete=True, events=[dict(source_id=meeting['source_id'], revision='1', event=event)])
+            Path(argv[argv.index('-o') + 1]).write_text(json.dumps(output), encoding='utf-8')
+            return subprocess.CompletedProcess(argv, 0, '', '')
+        runner.side_effect = run
+        result = execute(self.root, 'classify')
+        self.assertEqual([], result['errors'])
+        self.assertEqual(1, result['classified'])
+        self.assertEqual(0, execute(self.root, 'classify')['classified'])
+        self.assertEqual(1, runner.call_count)
+        with self.ledger() as ledger:
+            self.assertEqual([], ledger.pending_sources())
+            self.assertEqual(quote, ledger.read_work('ipgen-cli', 'owner')['current_events'][0]['claim'])
+
     @patch('profc_memory.cli.classify_sources')
     @patch('profc_memory.cli.collect_source')
     def test_unmatched_raw_sources_do_not_go_to_model_or_context(self, collect, classify):
@@ -167,6 +205,287 @@ class CLITests(unittest.TestCase):
         self.assertEqual(1,result['dossiers_updated'])
         self.assertEqual(0,execute(self.root,'dossier',work_id='byok')['dossiers_updated'])
         self.assertEqual(1,synth.call_count)
+
+    def enable_two_dossiers(self):
+        self.config['works'].append(dict(work_id='cli', title='IPGen CLI', aliases=['CLI'], anchors=['IPGen CLI']))
+        self.config.update(sources=[], max_classification_batches=0,
+                           dossiers=dict(enabled=True, work_ids=['byok', 'cli']))
+        self.save()
+
+    @patch('profc_memory.cli.synthesize')
+    @patch('profc_memory.cli.apply_dossier')
+    def test_run_skips_unchanged_first_dossier_and_builds_second(self, apply, synth):
+        self.enable_two_dossiers()
+        synth.return_value = dict(draft={'sections': {}}, errors=[])
+        apply.return_value = dict(status='updated', version='1')
+        self.assertEqual(1, execute(self.root, 'run', until=NOW)['dossiers_updated'])
+        self.assertEqual(1, execute(self.root, 'run', until=NOW)['dossiers_updated'])
+        self.assertEqual(['byok', 'cli'], [call.args[1]['work_id'] for call in apply.call_args_list])
+        self.assertEqual(0, execute(self.root, 'run', until=NOW)['dossiers_updated'])
+
+    @patch('profc_memory.cli.synthesize')
+    @patch('profc_memory.cli.apply_dossier')
+    def test_failed_first_dossier_backs_off_and_second_runs_next_round(self, apply, synth):
+        self.enable_two_dossiers()
+        synth.side_effect = [dict(draft=None, errors=[dict(type='timeout')]),
+                             dict(draft={'sections': {}}, errors=[])]
+        apply.return_value = dict(status='updated', version='1')
+        first = execute(self.root, 'run', until=NOW)
+        second = execute(self.root, 'run', until=NOW)
+        self.assertEqual('timeout', first['errors'][0]['type'])
+        self.assertEqual(1, second['dossiers_updated'])
+        self.assertEqual('cli', apply.call_args.args[1]['work_id'])
+        self.assertEqual(2, synth.call_count)
+
+    @patch('profc_memory.cli.synthesize')
+    @patch('profc_memory.cli.apply_dossier')
+    def test_frequently_changed_first_dossier_does_not_starve_second(self, apply, synth):
+        self.enable_two_dossiers()
+        synth.return_value = dict(draft={'sections': {}}, errors=[])
+        apply.return_value = dict(status='updated', version='1')
+        execute(self.root, 'run', until=NOW)
+        with self.ledger() as ledger:
+            ledger.ingest_source(source(), ['byok'])
+        execute(self.root, 'run', until=NOW)
+        self.assertEqual(['byok', 'cli'], [call.args[1]['work_id'] for call in apply.call_args_list])
+
+    @patch('profc_memory.cli.synthesize')
+    @patch('profc_memory.cli.apply_dossier')
+    def test_dossier_exception_is_private_and_does_not_block_other_project(self, apply, synth):
+        self.enable_two_dossiers()
+        synth.side_effect = [OSError('private upstream body'), dict(draft={'sections': {}}, errors=[])]
+        apply.return_value = dict(status='updated', version='1')
+        first = execute(self.root, 'run', until=NOW)
+        self.assertEqual('dossier_failed', first['errors'][0]['type'])
+        self.assertNotIn('private upstream body', json.dumps(first))
+        self.assertEqual(1, execute(self.root, 'run', until=NOW)['dossiers_updated'])
+        self.assertEqual('cli', apply.call_args.args[1]['work_id'])
+
+    @patch('profc_memory.cli.synthesize')
+    @patch('profc_memory.cli.apply_dossier')
+    @patch('profc_memory.cli.read_dossier')
+    def test_unreadable_first_dossier_does_not_block_second(self, read, apply, synth):
+        self.enable_two_dossiers()
+        (self.root / 'dossiers' / 'byok').mkdir(parents=True, mode=0o700)
+        (self.root / 'dossiers').chmod(0o700)
+        read.side_effect = ValueError('invalid existing dossier')
+        synth.return_value = dict(draft={'sections': {}}, errors=[])
+        apply.return_value = dict(status='updated', version='1')
+        result = execute(self.root, 'run', until=NOW)
+        self.assertEqual(1, result['dossiers_updated'])
+        self.assertEqual('cli', apply.call_args.args[1]['work_id'])
+        self.assertEqual('invalid_dossier', result['errors'][0]['type'])
+
+    @patch('profc_memory.cli.collect_source')
+    def test_discovery_collects_anchored_document_and_saves_original_provenance(self, collect):
+        url = 'https://bytedance.larkoffice.com/docx/Doc123?from=chat#section-1'
+        parent = source(content='BYOK 设计文档：' + url)
+        document = dict(source('document:Doc123', '设计正文，另有 https://team.feishu.cn/docx/DoNotRecurse'),
+                        kind='document', object_id='Doc123', url=url)
+        self.config['discovery'] = dict(enabled=True, max_documents_per_run=2)
+        self.save()
+        collect.side_effect = [dict(records=[parent], complete=True, cursor=NOW),
+                               dict(records=[document], complete=True, cursor=NOW)]
+        result = execute(self.root, 'collect', until=NOW)
+        self.assertEqual(2, result['collected'])
+        self.assertEqual(1, result['discovered_documents'])
+        self.assertEqual(2, collect.call_count)
+        self.assertEqual(url, collect.call_args.args[0]['doc'])
+        self.assertEqual('owner', collect.call_args.args[0]['owner_id'])
+        with self.ledger() as ledger:
+            self.assertEqual(['byok'], ledger.get_source('document:Doc123')['work_ids'])
+            queue = ledger.get_cursor('discovery:documents')
+            entry = next(iter(queue['documents'].values()))
+            self.assertEqual(url, entry['url'])
+            provenance = entry['provenance'][0]
+            self.assertEqual(parent['source_id'], provenance['source_id'])
+            self.assertEqual(parent['revision'], provenance['revision'])
+            self.assertEqual(parent['url'], provenance['url'])
+            self.assertEqual('chat', provenance['configured_source_id'])
+
+    @patch('profc_memory.cli.collect_source')
+    def test_discovery_keeps_unmatched_chat_link_pending_without_fetch(self, collect):
+        self.config['discovery'] = dict(enabled=True)
+        self.save()
+        collect.return_value = dict(records=[source(content='普通讨论 https://team.feishu.cn/wiki/Wiki123')],
+                                    complete=True, cursor=NOW)
+        result = execute(self.root, 'collect', until=NOW)
+        self.assertEqual(1, collect.call_count)
+        self.assertEqual(1, result['pending_documents'])
+        with self.ledger() as ledger:
+            entry = next(iter(ledger.get_cursor('discovery:documents')['documents'].values()))
+            self.assertEqual([], entry['work_ids'])
+
+    @patch('profc_memory.cli.collect_source')
+    def test_discovery_uses_single_document_binding_but_quarantines_ambiguous_binding(self, collect):
+        self.config['works'].append(dict(work_id='cli', title='IPGen CLI', anchors=['IPGen CLI']))
+        self.config['sources'] = [dict(id='design', kind='document', doc='https://team.feishu.cn/docx/Parent',
+                                       work_ids=['byok', 'cli'])]
+        self.config['discovery'] = dict(enabled=True)
+        self.save()
+        parent = dict(source('document:Parent', '参见 https://team.feishu.cn/docx/Child'),
+                      kind='document', object_id='Parent', url=self.config['sources'][0]['doc'])
+        collect.return_value = dict(records=[parent], complete=True, cursor=NOW)
+        result = execute(self.root, 'collect', until=NOW)
+        self.assertEqual(1, result['pending_documents'])
+        self.assertEqual(1, collect.call_count)
+        self.config['sources'][0]['work_ids'] = ['byok']
+        self.save()
+        collect.reset_mock()
+        collect.side_effect = [dict(records=[parent], complete=True, cursor=NOW),
+                               dict(records=[], complete=True, cursor=NOW)]
+        result = execute(self.root, 'collect', until=NOW)
+        self.assertEqual(0, result['pending_documents'])
+        self.assertEqual(2, collect.call_count)
+
+    @patch('profc_memory.cli.collect_source')
+    def test_discovery_failure_backs_off_and_does_not_starve_other_document(self, collect):
+        self.config['discovery'] = dict(enabled=True, max_documents_per_run=1)
+        self.save()
+        parent = source(content='BYOK https://team.feishu.cn/docx/First https://team.feishu.cn/docx/Second')
+        collect.side_effect = [dict(records=[parent], complete=True, cursor=NOW),
+                               dict(records=[], complete=False, error=dict(type='cli_failed')),
+                               dict(records=[parent], complete=True, cursor=NOW),
+                               dict(records=[], complete=True, cursor=NOW)]
+        first = execute(self.root, 'collect', until=NOW)
+        self.assertEqual('cli_failed', first['errors'][0]['type'])
+        self.assertEqual('https://team.feishu.cn/docx/First', collect.call_args.args[0]['doc'])
+        execute(self.root, 'collect', until=NOW)
+        self.assertEqual('https://team.feishu.cn/docx/Second', collect.call_args.args[0]['doc'])
+        self.assertEqual(4, collect.call_count)
+
+    @patch('profc_memory.cli.collect_source')
+    def test_discovery_disabled_leaves_no_queue_or_extra_read(self, collect):
+        collect.return_value = dict(records=[source(content='BYOK https://team.feishu.cn/docx/Doc123')],
+                                    complete=True, cursor=NOW)
+        execute(self.root, 'collect', until=NOW)
+        self.assertEqual(1, collect.call_count)
+        with self.ledger() as ledger:
+            self.assertIsNone(ledger.get_cursor('discovery:documents'))
+
+    def test_discovery_rejects_invalid_bounds_before_reading_sources(self):
+        for settings in [dict(enabled='yes'), dict(enabled=True, max_documents_per_run=0),
+                         dict(enabled=True, max_documents_per_run=6)]:
+            self.config['discovery'] = settings
+            self.save()
+            with self.assertRaises(CLIError):
+                execute(self.root, 'collect', until=NOW)
+
+    @patch('profc_memory.cli.collect_source')
+    def test_discovery_rejects_unrelated_document_returned_for_safe_url(self, collect):
+        self.config['discovery'] = dict(enabled=True)
+        self.save()
+        returned = dict(source('document:Wrong', '无关正文'), kind='document', object_id='Wrong',
+                        url='https://team.feishu.cn/docx/Wrong')
+        collect.side_effect = [dict(records=[source(content='BYOK https://team.feishu.cn/docx/Requested')],
+                                   complete=True, cursor=NOW),
+                               dict(records=[returned], complete=True, cursor=NOW)]
+        result = execute(self.root, 'collect', until=NOW)
+        self.assertEqual(1, result['collected'])
+        self.assertEqual('discovery_collection_failed', result['errors'][0]['type'])
+        with self.ledger() as ledger:
+            with self.assertRaises(ValueError):
+                ledger.get_source('document:Wrong')
+
+    @patch('profc_memory.cli.collect_source')
+    def test_removing_origin_source_stops_discovered_document_reads(self, collect):
+        self.config['discovery'] = dict(enabled=True)
+        self.save()
+        collect.side_effect = [dict(records=[source(content='BYOK https://team.feishu.cn/docx/Doc123')],
+                                   complete=True, cursor=NOW),
+                               dict(records=[], complete=True, cursor=NOW)]
+        execute(self.root, 'collect', until=NOW)
+        self.config['sources'] = []
+        self.save()
+        collect.reset_mock()
+        execute(self.root, 'collect', until=NOW)
+        collect.assert_not_called()
+
+    @patch('profc_memory.cli.collect_source')
+    def test_discovered_alias_keeps_existing_immutable_document_revision(self, collect):
+        url = 'https://team.feishu.cn/docx/Doc123'
+        alias = url + '?from=chat#part'
+        self.config['sources'].append(dict(id='design', kind='document', doc=url, work_ids=['byok']))
+        self.config['discovery'] = dict(enabled=True)
+        self.save()
+        document = dict(source('document:Doc123', '已有设计正文'), kind='document', object_id='Doc123', url=url)
+        collect.side_effect = [dict(records=[source(content='BYOK ' + alias)], complete=True, cursor=NOW),
+                               dict(records=[document], complete=True, cursor=NOW),
+                               dict(records=[dict(document, url=alias)], complete=True, cursor=NOW)]
+        result = execute(self.root, 'collect', until=NOW)
+        self.assertEqual([], result['errors'])
+        self.assertEqual(2, result['collected'])
+        with self.ledger() as ledger:
+            self.assertEqual(url, ledger.get_source('document:Doc123')['url'])
+            entry = next(iter(ledger.get_cursor('discovery:documents')['documents'].values()))
+            self.assertEqual(alias, entry['url'])
+
+    @patch('profc_memory.cli.collect_source')
+    def test_tampered_discovery_queue_cannot_request_external_domain(self, collect):
+        self.config['discovery'] = dict(enabled=True)
+        self.config['sources'] = []
+        self.save()
+        with self.ledger() as ledger:
+            ledger.set_cursor('discovery:documents', dict(schema_version=1, documents={
+                'fake': dict(id='fake', url='https://evil.test/docx/Doc123', work_ids=['byok'], provenance=[])}))
+        result = execute(self.root, 'collect', until=NOW)
+        self.assertEqual('invalid_discovery_state', result['errors'][0]['type'])
+        collect.assert_not_called()
+
+    def test_run_deadline_interrupts_native_open_in_real_subprocess(self):
+        fifo = self.root / 'blocked-open'
+        os.mkfifo(fifo)
+        script = '''
+import os, sys
+from profc_memory import cli
+cli.RUN_TIMEOUT_SECONDS = 0.15
+def blocked(**kwargs):
+    try:
+        os.open(sys.argv[2], os.O_RDONLY)
+    except Exception:
+        return dict(errors=[dict(type='swallowed_timeout')])
+cli.execute = blocked
+raise SystemExit(cli.main(['--state-dir', sys.argv[1], 'run']))
+'''
+        try:
+            completed = subprocess.run([sys.executable, '-c', script, str(self.root), str(fifo)],
+                                       capture_output=True, text=True, timeout=3)
+        except subprocess.TimeoutExpired:
+            self.fail('run deadline did not interrupt a native blocking open')
+        self.assertEqual(1, completed.returncode)
+        self.assertEqual({'errors': [{'type': 'run_timeout'}]}, json.loads(completed.stdout))
+
+    @patch('profc_memory.cli.execute')
+    def test_run_deadline_restores_existing_alarm_and_keeps_business_error(self, execute_call):
+        original_handler = signal.getsignal(signal.SIGALRM)
+        previous = signal.setitimer(signal.ITIMER_REAL, 30)
+        execute_call.side_effect = CLIError('existing_business_error')
+        output = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(1, main(['--state-dir', str(self.root), 'run']))
+            remaining, _ = signal.getitimer(signal.ITIMER_REAL)
+            self.assertEqual(original_handler, signal.getsignal(signal.SIGALRM))
+            self.assertTrue(29 < remaining <= 30)
+            self.assertEqual('existing_business_error', json.loads(output.getvalue())['errors'][0]['type'])
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, *previous)
+
+    def test_recall_does_not_use_run_deadline(self):
+        script = '''
+import time, sys
+from profc_memory import cli
+cli.RUN_TIMEOUT_SECONDS = 0.03
+def slow(**kwargs):
+    time.sleep(0.10)
+    return dict(errors=[])
+cli.execute = slow
+raise SystemExit(cli.main(['--state-dir', sys.argv[1], 'recall', '--requester-id', 'owner', '--query', 'BYOK']))
+'''
+        completed = subprocess.run([sys.executable, '-c', script, str(self.root)],
+                                   capture_output=True, text=True, timeout=3)
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertEqual({'errors': []}, json.loads(completed.stdout))
 
     def test_missing_config_unsafe_permissions_and_traversal_rejected(self):
         (self.root/'config.json').chmod(0o644)

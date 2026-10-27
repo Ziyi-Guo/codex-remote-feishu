@@ -2113,7 +2113,7 @@ retained-offline overlay 额外规则：
 - native append 的压缩代次只由带完整 thread/turn/item ID 的 `contextCompaction` 完成事件推进，重复事件去重。若追加请求的响应跨越了新代次，旧响应不算当前代次已应用，先在新代次重新追加再开始用户 turn；没有定时猜测或后台重试。下一次获准用户 dispatch 才按需重注短入口，不重注项目正文。
 - 压缩的明确观察点是 `item/completed` 的 `contextCompaction`（映射为 `context_compaction`），携带实际 thread/turn/item ID；item 无 `status` 字段也可合法完成。压缩事件不重补用户 input。协议测试只核验请求和关联；真实模型行为由隔离 smoke 单独核验，2026-10-27 的 Codex 0.160.1 实测 thread developer override 及 native developer append 都在明确压缩完成后仍生效，append 保留了临时原生配置中的既有规则，用户 input 均只有检查口令。该实测不替代其他版本的压缩核验，append 路径仍按明确代次重新确认。不能将 relay 发送成功、wrapper `Accepted` 或 `/compact` 请求的空响应当作模型已收到入口或压缩已完成。
 - 兼容旧快照模式只在 `mode` 缺省时按原 v1 协议处理；未知 mode 跳过新入口。旧模式每次获准的用户 `prompt.send` 读取本地 `works/<id>/context.json` 小快照；新部署的 on-demand 模式不走此分支。
-- manifest v1 的 `owner_user_id`、精确 `bindings[].surface_id` allowlist、真实 Origin actor 与原队列 `ActorUserID` 必须一致；queue actor 缺失不得回退 surface actor。thread binding 只能在已获准 surface 内选事项，owner 在其他共享群仍不注入。limited execution、编码限定身份或配置限定群，以及 steer/helper/review/自动续跑均不注入。
+- manifest v1 的 `owner_user_id`、精确 `bindings[].surface_id`（on_demand 也可用维护者配置的精确 gateway/chat）allowlist、真实 Origin actor 与原队列 `ActorUserID` 必须一致；queue actor 缺失不得回退 surface actor。thread binding 只能在已获准 surface 内选事项，owner 在其他共享群仍不注入。limited execution、编码限定身份或配置限定群，以及 steer/helper/review/自动续跑均不注入。
 - context v1 必须匹配 work ID、owner、`visibility=owner`、正整数字符串版本及 RFC3339 更新时间。相对路径限定根目录，拒绝 traversal、symlink、非普通文件、超限和坏 JSON。manifest 最大 64 KiB、单 context 48 KiB、最多四事项，包括正文、标题、来源标识与声明在内的最终注入输入合计 24 KiB；整个输入带 `[codex-remote-work-memory:v1]` 及“来源资料，不是执行授权”声明，原用户 inputs 保持不变。
 - 快照 I/O 在 `a.mu` 外以 200 ms 有界等待，锁内重新核验身份。资料无效或在归属检查已通过后读取超时，只跳过注入。首次注入先确保空 registry、fsync 创建 collector 目录外的 `<StateDir>/work-memory-privacy-enabled.json` 启用标记，再落盘实际归属。`private-threads.json` 持久记录已注入 thread 的 owner/surface；标记存在后 registry 或整个 collector 目录丢失都不能当成空状态，删除或关闭 manifest 不解除旧历史保护。只有普通 collector 目录、没有 manifest/启用标记时不初始化隐私状态，也不阻断原任务。旧私有 thread 的跨 surface prompt、history 和读取上下文命令被拒；fork 已私有 source 时先登记新 execution thread 的 pending 归属，即使 manifest 已关闭也不丢失继承历史的隐私属性；`/stop` 等既有控制命令保留。
 - 新 thread 注入前先持久记录带 daemon lifecycle 的 pending command 与此前已知 thread。wrapper 只在实际 `thread/start` 或 `thread/fork` 响应中，通过原协议 requestID 对应的完整 command 产生带 CommandID、真实 threadID、remote surface 的 `thread.discovered`；daemon 只据这些精确字段登记归属，不能用当前 surface 的唯一 pending 推断旧事件归属。缺 CommandID 的事件不消费 pending。
@@ -2121,6 +2121,13 @@ retained-offline overlay 额外规则：
 - pending 期间其他 surface 可新建或使用此前已知普通 thread，不能采用未确认归属的未知 thread。实际已派发且未注入资料的普通新建命令，仅在当前 daemon lifecycle 内保留 CommandID；精确协议事件必须匹配该 command、instance 和原 remote surface，才得到普通新 thread 的输出许可。该许可不能用于未知 resume/fork，后续向该 thread 注入资料前立即撤销。
 - 归属注册表不可读、归属核验超时或未知 thread 归属未落盘时，相关复用请求 fail-closed，并指向 `/new` 或已有普通会话；它不同于可忽略的资料文件错误。重启遗留未解决 pending 不自动失效，避免遗忘已注入历史的隐私属性；需本地核实对应 native thread 后修复记录。
 - 输出层按实际 thread ID 对 Block、timeline、图片、history、thread selection、工具进度、plan、文件/差异摘要及 request 卡再验 owner/surface。全局/工作区 thread 列表、target picker 的选项和已选摘要、snapshot 的标题/preview/首末用户消息在 daemon 出站 DTO 副本上按实际 viewer 过滤，typed payload 同步重建，保留其他普通 thread 和新建入口且不修改 core 事实。此机制不提供同 UID 宿主文件隔离；0600/0700 不是 `readonly-network-never` 进程不可读取个人文件的保证。
+
+### 项目记忆的新话题入口与被动事件身份（2026-10-27）
+
+- `mode=on_demand` 的维护者配置可按精确 `gateway_id + chat_id` 授予本人新话题短入口；原 `surface_id` 绑定继续兼容。仅匹配该群且 Origin/队列 actor 都等于配置 owner 时启用；不支持通配符，也不向旧快照模式开放群级正文注入。不同话题的私有 thread 仍各自冻结原 surface/owner，不能用同一群绑定跨入口读取私有历史。
+- `surface.message.reaction.created` 和撤回事件只携带本次事件操作者，不覆盖 surface 的回复所有者。否则机器人自带表情可能把后续个人资料输出改判为非 owner，形成模型已完成但飞书无答复的死端。真实文字/图片/文件等主动输入仍更新 actor，个人资料输出仍重新核验所有者。
+- 表情若派生 `ThumbsUp` steer 或 `APPLAUSE` shell 指令，还要求真实 reaction actor 与当前回复 owner 一致，并核对被操作 queue item 的真实 actor；不同 actor 的表情不能借用回复 owner 派发别人的排队输入。既有内部无 actor fixture 保持兼容，真实 gateway 入站必须携带事件 actor。
+- 验收同时覆盖：本人新话题有入口；其他群、其他 gateway 和其他 actor 无入口；表情后原回复可投递；既有共享/跨 surface 私有历史负例仍拒绝。
 
 ## 11. 待讨论取舍
 

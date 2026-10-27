@@ -220,8 +220,8 @@ def _source_map(root, snapshot):
 
 def _pages(root, snapshot, draft, config, previous=None):
     sections = draft.get('sections')
-    if not isinstance(sections, dict) or set(sections) != set(SECTIONS):
-        raise ValueError('draft must contain exactly the five dossier sections')
+    if not isinstance(sections, dict) or set(sections) not in (set(SECTIONS), set(SECTIONS) | {'目标'}):
+        raise ValueError('draft must contain the dossier sections and optional goal')
     sources, used = _source_map(root, snapshot), {}
 
     def references(refs):
@@ -261,8 +261,10 @@ def _pages(root, snapshot, draft, config, previous=None):
             parts.append(references(extra))
         return '\n\n'.join(parts) or '暂无可确认的资料。'
 
+    headings = (('目标',) if '目标' in sections else ()) + SECTIONS
     pages = {'home.md': '# ' + _label(snapshot.get('title'), snapshot['work_id']) + '\n\n{BUILD}\n\n' +
-             '\n\n'.join('## ' + name + '\n\n' + paragraphs(sections[name]) for name in SECTIONS)}
+             '[来源与相关文档](sources.md) · [项目更新记录](updates.md)\n\n' +
+             '\n\n'.join('## ' + name + '\n\n' + paragraphs(sections[name]) for name in headings)}
     decisions = draft.get('decisions', [])
     if not isinstance(decisions, list):
         raise ValueError('decisions must be a list')
@@ -333,7 +335,7 @@ def _current(path, owner, work_id=None):
         raise ValueError('invalid dossier manifest')
     pages, missing = {}, []
     for relative in manifest['machine_hashes']:
-        if not re.fullmatch(r'(?:home|sources)\.md|decisions/[a-z0-9_-]{1,64}\.md', relative):
+        if not re.fullmatch(r'(?:home|sources|updates)\.md|decisions/[a-z0-9_-]{1,64}\.md', relative):
             raise ValueError('unsafe manifest path')
         if not (path / relative).exists():
             missing.append(relative)
@@ -385,10 +387,14 @@ def apply_dossier(state_dir, snapshot, draft, *, now=None):
                 rendered[name] = HUMAN.sub(lambda _: '<!-- human:start -->' + _human(pages[name]) + '<!-- human:end -->', text)
         # Human notes from retired decision files must remain available.
         for name in set(pages) - set(rendered):
-            if _human(pages[name]).strip():
+            if name != 'updates.md' and _human(pages[name]).strip():
                 rendered[name] = pages[name]
+        work = next((item for item in config.get('works', []) if item.get('work_id') == work_id), {})
+        summary = _plain(work.get('summary', ''))
+        if len(summary) > 240 or '\n' in summary:
+            raise ValueError('project summary must be one short line')
         content_hash = hashlib.sha256(_json(dict(pages={name: _hash(text) for name, text in rendered.items()}, title=snapshot.get('title'),
-            aliases=snapshot.get('work', {}).get('aliases', []))).encode()).hexdigest()
+            aliases=snapshot.get('work', {}).get('aliases', []), summary=summary)).encode()).hexdigest()
         if old and content_hash == old.get('content_hash'):
             return dict(status='unchanged', work_id=work_id, version=old['version'], receipt=old['receipt'])
         version = str(int(old['version']) + 1 if old else 1)
@@ -396,11 +402,17 @@ def apply_dossier(state_dir, snapshot, draft, *, now=None):
                        reconstruction='根据现有资料于 ' + stamp + ' 重建')
         manifest = dict(schema_version=1, work_id=work_id, title=snapshot.get('title', work_id),
             aliases=snapshot.get('work', {}).get('aliases', []), owner_id=config['owner_id'], visibility='owner',
-            version=version, updated_at=stamp, content_hash=content_hash, receipt=receipt,
-            sections={**{s: dict(path='home.md', heading=s, level=2) for s in SECTIONS},
+            version=version, updated_at=stamp, summary=summary, content_hash=content_hash, receipt=receipt,
+            sections={**{s: dict(path='home.md', heading=s, level=2) for s in draft['sections']},
                       'sources': dict(path='sources.md'), 'decisions': dict(path='decisions')})
         final = {name: text.replace('{BUILD}', receipt['reconstruction'], 1) if name == 'home.md' else text
                  for name, text in rendered.items()}
+        header = '# 项目更新记录\n\n记录每次整理后的变化；档案更新不代表业务已验收。\n'
+        old_updates = HUMAN.sub('', pages.get('updates.md', '')).replace('**人工补充**', '').removeprefix(header).strip()
+        if old and not old_updates:
+            old_updates = '此前版本保存在 versions/，本页从本次更新开始记录。'
+        entry = '## ' + stamp + ' · 第 ' + version + ' 版\n\n' + reason + '\n\n[本次档案](versions/' + version + '/home.md)'
+        final['updates.md'] = header + '\n' + entry + '\n\n' + old_updates + '\n\n**人工补充**\n\n<!-- human:start -->' + (_human(pages['updates.md']) if 'updates.md' in pages else '\n') + '<!-- human:end -->\n'
         manifest['machine_hashes'] = {name: _hash(text) for name, text in final.items()}
         stage = Path(tempfile.mkdtemp(prefix='.stage-', dir=directory))
         backup = directory / ('.backup-' + work_id)
@@ -483,12 +495,14 @@ def read_dossier(state_dir, work_id, requester_id, section='home', *, audience='
             content = ('# 档案版本历史\n\n这些是档案实际构建与修订的时间；首版依据现存材料重建，'
                        '不能当作过去某天已经存在的首页。原始材料的发生时间和采集时间保留在来源快照中。\n\n'
                        + '\n\n'.join(entries))
+            if 'updates.md' in pages:
+                content = pages['updates.md'] + '\n\n' + content
         elif isinstance(section, str) and section.startswith('decision:'):
             slug = _id(section.removeprefix('decision:'))
             content = pages.get('decisions/' + slug + '.md', '')
             if not content:
                 raise ValueError('unknown decision')
-        elif section in SECTIONS:
+        elif section in (*SECTIONS, '目标'):
             match = re.search(r'^## ' + re.escape(section) + r'\n(.*?)(?=^## |\Z)', pages['home.md'], re.M | re.S)
             content = match[1] if match else ''
         else:

@@ -11,7 +11,7 @@ import re
 import tempfile
 
 
-SECTIONS = frozenset(('现状', '背景', '问题', '决策', '近期关注', 'home', 'sources', 'decisions','history'))
+SECTIONS = frozenset(('目标', '现状', '背景', '问题', '决策', '近期关注', 'home', 'sources', 'decisions','history'))
 _ID = re.compile(r'[a-z0-9_-]{1,64}')
 _PRONOUN = re.compile(r'^(?:它|这个|该|当前|刚才那个|上面那个)(?:项目|事项|工作)?(?:现在|目前)?(?:怎么样|进展如何|情况如何|的进展|进展|的情况|情况|呢)?[？?。！!\s]*$')
 
@@ -43,16 +43,16 @@ def _json(path):
     return json.loads(path.read_text(encoding='utf-8'))
 
 
-def _catalog(root, owner):
+def _catalog(root, owner, works):
     from .archive import _lock, dossier_directory
     directory = _safe(dossier_directory(root), directory=True, missing=True)
     if not directory.exists():
         return []
     with _lock(root):
-        return _catalog_unlocked(root, directory, owner)
+        return _catalog_unlocked(root, directory, owner, works)
 
 
-def _catalog_unlocked(root, directory, owner):
+def _catalog_unlocked(root, directory, owner, works):
     catalog = []
     for folder in sorted(directory.iterdir()):
         work_id = folder.name
@@ -78,7 +78,24 @@ def _catalog_unlocked(root, directory, owner):
         if (not isinstance(aliases, list) or len(aliases) > 30
                 or not all(isinstance(a, str) and 0 < len(a) <= 128 for a in aliases)):
             raise ValueError('invalid_manifest')
+        configured = next((w for w in works if w.get('work_id') == work_id), {})
+        configured_aliases = configured.get('aliases', [])
+        if (not isinstance(configured_aliases, list) or len(configured_aliases) > 30
+                or not all(isinstance(a, str) and 0 < len(a) <= 128 for a in configured_aliases)):
+            raise ValueError('invalid_config')
+        summary = manifest.get('summary', '')
+        if not isinstance(summary, str) or len(summary) > 240 or '\n' in summary or '\r' in summary:
+            raise ValueError('invalid_manifest')
+        summary = configured.get('summary', summary)
+        if not isinstance(summary, str) or len(summary) > 240 or '\n' in summary or '\r' in summary:
+            raise ValueError('invalid_config')
+        receipt = manifest.get('receipt', {})
+        updated_at = manifest.get('updated_at', receipt.get('built_at', '') if isinstance(receipt, dict) else '')
+        if not isinstance(updated_at, str) or len(updated_at) > 64 or '\n' in updated_at or '\r' in updated_at:
+            raise ValueError('invalid_manifest')
+        aliases = list(dict.fromkeys([*aliases, *configured_aliases]))
         catalog.append(dict(work_id=work_id, title=manifest['title'], aliases=aliases,
+                            summary=summary, updated_at=updated_at,
                             version=manifest['version'], path=str(folder / 'home.md')))
         if len(catalog) > 100:
             raise ValueError('catalog_limit')
@@ -109,7 +126,8 @@ def _candidates(query, catalog, resolver):
             matches.sort(key=lambda c: c['work_id'] not in ids)
         except Exception:
             pass
-    return [{key: c[key] for key in ('work_id', 'title', 'aliases', 'path')} for c in matches[:20]]
+    return [{key: c[key] for key in ('work_id', 'title', 'aliases', 'summary', 'updated_at', 'path')}
+            for c in matches[:20]]
 
 
 def _write_json(path, value):
@@ -187,7 +205,10 @@ def retrieve(state_dir, *, requester_id, audience='owner', work_id=None, query=N
             raise ValueError('invalid_request')
     if work_id is not None and (not isinstance(work_id, str) or not _ID.fullmatch(work_id)):
         raise ValueError('invalid_work_id')
-    catalog = _catalog(root, owner)
+    works = config.get('works', [])
+    if not isinstance(works, list) or len(works) > 100 or not all(isinstance(w, dict) for w in works):
+        raise ValueError('invalid_config')
+    catalog = _catalog(root, owner, works)
     with _state(root) as directory:
         session_path, session = None, {}
         if session_id:
@@ -203,6 +224,10 @@ def retrieve(state_dir, *, requester_id, audience='owner', work_id=None, query=N
                 if (session_path and session.get('current_work') and
                         (len(candidates) != 1 or candidates[0]['work_id'] != session['current_work'])):
                     _write_json(session_path,{})
+                if query and not candidates:
+                    return _result('catalog_fallback', candidates=_candidates('所有项目', catalog, None),
+                                   fallback_reason='no_candidate_match', catalog_total=len(catalog),
+                                   catalog_truncated=len(catalog) > 20)
                 return _result('candidates' if candidates else 'none', candidates=candidates)
         candidate = next((c for c in catalog if c['work_id'] == work_id), None)
         if candidate is None:

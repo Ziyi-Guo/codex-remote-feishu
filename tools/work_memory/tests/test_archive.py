@@ -47,6 +47,34 @@ class ArchiveTests(unittest.TestCase):
         config['dossiers'] = {'directory': str(directory)}
         path.write_text(json.dumps(config))
 
+    def test_explicit_goal_and_project_update_history_keep_sources_and_versions(self):
+        self.draft['sections']['目标'] = [{'text': '本期完成官方 Key MVP；以真实使用验收为完成条件。', 'source_refs': [self.ref]}]
+        config_path = self.root / 'config.json'
+        config = json.loads(config_path.read_text())
+        config['works'] = [{'work_id': 'profc', 'summary': '客户自带模型资源的接入与验收'}]
+        config_path.write_text(json.dumps(config))
+        self.apply()
+        goal = read_dossier(self.root, 'profc', 'owner', section='目标')
+        self.assertIn('完成条件', goal['content'])
+        self.assertIn('https://example.test/original', goal['content'])
+        manifest = json.loads((self.root / 'dossiers/profc/manifest.json').read_text())
+        self.assertEqual('客户自带模型资源的接入与验收', manifest['summary'])
+        self.assertTrue((self.root / 'dossiers/profc/updates.md').is_file())
+        self.draft['reason'] = '新增真实使用的验收边界，保留原 MVP 目标。'
+        self.draft['sections']['现状'][0]['text'] = '完成定向测试，真实使用仍待验收。'
+        self.apply()
+        history = read_dossier(self.root, 'profc', 'owner', section='history')['content']
+        self.assertIn('新增真实使用的验收边界', history)
+        self.assertIn('versions/1/home.md', history)
+        self.assertIn('versions/2/home.md', history)
+        self.assertLess(history.index('versions/2/home.md'), history.index('versions/1/home.md'))
+        self.assertEqual('unchanged', self.apply()['status'])
+        updates = self.root / 'dossiers/profc/updates.md'
+        updates.write_text(updates.read_text().replace('<!-- human:start -->', '<!-- human:start -->\n人工说明：等待客户确认。'))
+        self.draft['sections']['问题'][0]['text'] = '仍待客户确认，来源结论保持不变。'
+        self.apply()
+        self.assertIn('人工说明：等待客户确认。', read_dossier(self.root, 'profc', 'owner', section='history')['content'])
+
     def test_external_directory_is_the_only_canonical_store_and_keeps_versions(self):
         with tempfile.TemporaryDirectory() as temporary:
             ancestor = Path(temporary).resolve() / 'existing'

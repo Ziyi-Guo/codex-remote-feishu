@@ -157,7 +157,28 @@ class ClassifyTests(unittest.TestCase):
     def test_limits_reject_before_runner(self):
         def forbidden(*args, **kwargs):
             self.fail('runner should not be called')
-        result = classify_sources([dict(SOURCE, content='x' * 50001)], WORKS, [], runner=forbidden)
+        result = classify_sources([dict(SOURCE, content='x' * 64001)], WORKS, [], runner=forbidden)
+        self.assertEqual('limit_exceeded', result['errors'][0]['type'])
+
+    def test_source_below_64000_character_total_can_reach_runner(self):
+        content = ('会议范围尚未确认。' * 7000)[:60000]
+        self.assertEqual(60000, len(content))
+        called = []
+        def check(argv, kwargs):
+            called.append(True)
+            self.assertIn(content[:300], kwargs['input'])
+        result = classify_sources([dict(SOURCE, content=content)], WORKS, [],
+                                  runner=fake(dict(complete=True, events=[]), check))
+        self.assertEqual([], result['errors'])
+        self.assertEqual([True], called)
+
+    def test_combined_input_above_64000_characters_rejected_before_runner(self):
+        def forbidden(*args, **kwargs):
+            self.fail('combined input must not reach runner')
+        sources = [dict(SOURCE, source_id='message:' + str(index), content='待确认。\n' * 6600)
+                   for index in range(2)]
+        self.assertTrue(all(len(item['content']) < 64000 for item in sources))
+        result = classify_sources(sources, WORKS, [], runner=forbidden)
         self.assertEqual('limit_exceeded', result['errors'][0]['type'])
 
     def test_unscrubbed_input_rejected_before_runner(self):

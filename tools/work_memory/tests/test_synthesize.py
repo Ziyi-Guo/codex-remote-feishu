@@ -19,7 +19,7 @@ def snapshot():
 def draft():
     ref = dict(source_id='message:s1', revision='1')
     paragraph = dict(text='官方Key MVP保留，移动渠道属于后续评估范围。', source_refs=[ref])
-    return dict(complete=True, sections={k:[paragraph] for k in ('现状','背景','问题','决策','近期关注')},
+    return dict(complete=True, sections={k:[paragraph] for k in ('目标','现状','背景','问题','决策','近期关注')},
                 decisions=[dict(slug='channel-scope', title='渠道范围', status='current', superseded_by='',
                                 body=[paragraph])], reason='根据当前证据重建')
 

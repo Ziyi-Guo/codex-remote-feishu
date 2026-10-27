@@ -1,7 +1,7 @@
 """Private local collection -> bounded classification -> derived projections."""
 
 import argparse
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 import fcntl
 import hashlib
@@ -9,11 +9,14 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import sqlite3
 import tempfile
+import time
 
-from .classify import classify_sources
+from .classify import MAX_INPUT_CHARS, MAX_SOURCES, classify_sources
 from .collect import bounded_anchor_matches, collect_source
+from .discover import collect_discovered, discover_documents
 from .ledger import Ledger
 from .render import build_context, render_work
 from .publish import publish_work
@@ -27,6 +30,31 @@ class CLIError(ValueError):
     def __init__(self, code):
         self.code = code
         super().__init__(code)
+
+
+RUN_TIMEOUT_SECONDS = 600
+
+
+class RunTimeout(BaseException):
+    """Bypass per-source error handlers so the whole scheduled run can stop."""
+
+
+@contextmanager
+def _run_deadline():
+    def expired(_signal, _frame):
+        raise RunTimeout()
+
+    previous_handler = signal.signal(signal.SIGALRM, expired)
+    started = time.monotonic()
+    previous_timer = signal.setitimer(signal.ITIMER_REAL, RUN_TIMEOUT_SECONDS)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        delay, interval = previous_timer
+        if delay:
+            signal.setitimer(signal.ITIMER_REAL, max(0.001, delay - (time.monotonic() - started)), interval)
 
 
 def _now():
@@ -96,6 +124,11 @@ def _config(state_dir):
             or not isinstance(dossiers.get('work_ids', []), list)
             or any(w not in work_ids for w in dossiers.get('work_ids', []))):
         raise CLIError('invalid_config')
+    discovery = config.get('discovery', {})
+    if (not isinstance(discovery, dict) or type(discovery.get('enabled', False)) is not bool
+            or type(discovery.get('max_documents_per_run', 2)) is not int
+            or not 1 <= discovery.get('max_documents_per_run', 2) <= 5):
+        raise CLIError('invalid_config')
     return root, config
 
 
@@ -144,6 +177,7 @@ def _lock(root):
 
 def _collect(root, config, ledger, until):
     stats = dict(collected=0, errors=[])
+    discoveries = []
     history = _read(root / 'collection_status.json', {})
     if not isinstance(history, dict):
         raise CLIError('invalid_state')
@@ -163,6 +197,8 @@ def _collect(root, config, ledger, until):
                     linked = [w['work_id'] for w in config['works'] if w['work_id'] in allowed
                               and bounded_anchor_matches(record['content'], w.get('anchors', []))]
                 stats['collected'] += int(ledger.ingest_source(record, linked))
+                if config.get('discovery', {}).get('enabled'):
+                    discoveries += discover_documents(record, source, config['works'], config['owner_id'])
             if result.get('complete'):
                 ledger.set_cursor(key, result['cursor'])
         except (ValueError, PermissionError, KeyError, TypeError, sqlite3.Error):
@@ -174,6 +210,11 @@ def _collect(root, config, ledger, until):
         history[source['id']] = dict(attempted_at=_now(), complete=not bool(error), error=error,
                                      cursor=ledger.get_cursor(key), coverage_start=result.get('coverage_start'))
     _write(root / 'collection_status.json', history)
+    if config.get('discovery', {}).get('enabled'):
+        discovered = collect_discovered(config, ledger, discoveries, until, collect_source)
+        stats['collected'] += discovered.pop('collected')
+        stats['errors'] += discovered.pop('errors')
+        stats.update(discovered)
     return stats
 
 
@@ -219,15 +260,15 @@ def _classify(config, ledger):
     maximum = config.get('max_classification_batches', 1)
     for _ in range(maximum):
         batch, size = [], 0
-        while eligible and len(batch) < 8:
+        while eligible and len(batch) < MAX_SOURCES:
             source = eligible[0]
             length = len(json.dumps(source, ensure_ascii=False))
-            if length > 36000:
+            if length > MAX_INPUT_CHARS:
                 eligible.pop(0)
                 _backoff(ledger, source, 'limit_exceeded')
                 stats['errors'].append(dict(type='limit_exceeded'))
                 continue
-            if size + length > 36000:
+            if size + length > MAX_INPUT_CHARS:
                 break
             batch.append(eligible.pop(0))
             size += length
@@ -326,8 +367,12 @@ def _dossiers(root, config, ledger, work_id=None):
     elif not settings.get('enabled'):
         return dict(dossiers_updated=0, errors=[])
     history = _read(root / 'dossier_build_status.json', {})
+    if not isinstance(history, dict):
+        raise CLIError('invalid_state')
     result = dict(dossiers_updated=0, errors=[])
-    for selected in allowed[:1]:
+    # Select after checking eligibility; a busy first project must not starve others.
+    for selected in sorted(allowed, key=lambda item: history.get(item, {}).get('attempted_at',
+                                                              history.get(item, {}).get('generated_at', ''))):
         snapshot = ledger.read_work(selected, config['owner_id'])
         last = history.get(selected, {})
         if (str(last.get('source_revision')) == str(snapshot['revision'])
@@ -335,36 +380,51 @@ def _dossiers(root, config, ledger, work_id=None):
             continue
         if not work_id and last.get('retry_after') and last['retry_after'] > _now():
             continue
-        previous = None
-        if (dossier_directory(root) / selected).exists():
-            prior = read_dossier(root, selected, config['owner_id'])
-            if prior.get('status') == 'drift':
-                result['errors'].append(dict(type='dossier_drift'))
-                continue
-            previous = prior.get('content')
-        _mkdir(root / 'dossier_drafts')
-        draft_path = root / 'dossier_drafts' / (selected + '.json')
-        cached = _read(draft_path, {})
-        compiled = (dict(draft=cached['draft'],errors=[])
-                    if str(cached.get('source_revision')) == str(snapshot['revision']) and cached.get('draft')
-                    and cached.get('compiler_version') == SYNTHESIS_VERSION
-                    else synthesize(snapshot, previous=previous))
+        attempted = _now()
+        retry = dict(attempted_at=attempted,
+                     retry_after=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat())
+        try:
+            previous = None
+            if (dossier_directory(root) / selected).exists():
+                prior = read_dossier(root, selected, config['owner_id'])
+                if prior.get('status') == 'drift':
+                    result['errors'].append(dict(type='dossier_drift'))
+                    history[selected] = retry
+                    continue
+                previous = prior.get('content')
+            _mkdir(root / 'dossier_drafts')
+            draft_path = root / 'dossier_drafts' / (selected + '.json')
+            cached = _read(draft_path, {})
+        except (ValueError, KeyError, TypeError, OSError):
+            result['errors'].append(dict(type='invalid_dossier'))
+            history[selected] = retry
+            continue
+        try:
+            compiled = (dict(draft=cached['draft'],errors=[])
+                        if str(cached.get('source_revision')) == str(snapshot['revision']) and cached.get('draft')
+                        and cached.get('compiler_version') == SYNTHESIS_VERSION
+                        else synthesize(snapshot, previous=previous))
+        except (ValueError, KeyError, TypeError, OSError):
+            compiled = dict(errors=[dict(type='dossier_failed')])
         if compiled.get('errors'):
             result['errors'] += compiled['errors']
-            history[selected] = dict(attempted_at=_now(), retry_after=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat())
-            continue
-        _write(draft_path,dict(source_revision=str(snapshot['revision']),compiler_version=SYNTHESIS_VERSION,draft=compiled['draft']))
+            history[selected] = retry
+            break
         try:
+            _write(draft_path,dict(source_revision=str(snapshot['revision']),compiler_version=SYNTHESIS_VERSION,draft=compiled['draft']))
             receipt = apply_dossier(root, snapshot, compiled['draft'])
-        except (ValueError,KeyError,TypeError):
+        except (ValueError,KeyError,TypeError,OSError):
             result['errors'].append(dict(type='invalid_dossier'))
-            continue
+            history[selected] = retry
+            break
         if receipt.get('status') == 'drift':
             result['errors'].append(dict(type='dossier_drift'))
-            continue
+            history[selected] = retry
+            break
         history[selected] = dict(source_revision=str(snapshot['revision']),compiler_version=SYNTHESIS_VERSION,
-                                 version=receipt['version'],generated_at=_now())
+                                 version=receipt['version'],generated_at=_now(),attempted_at=attempted)
         result['dossiers_updated'] += int(receipt['status'] == 'updated')
+        break
     _write(root / 'dossier_build_status.json', history)
     return result
 
@@ -437,9 +497,13 @@ def main(argv=None):
             command.add_argument('--max-chars',type=int,default=1600)
     args = vars(parser.parse_args(argv))
     try:
-        result = execute(**args)
+        with _run_deadline() if args['command'] == 'run' else nullcontext():
+            result = execute(**args)
         print(json.dumps(result, ensure_ascii=False))
         return int(bool(result.get('errors')))
+    except RunTimeout:
+        print(json.dumps(dict(errors=[dict(type='run_timeout')])))
+        return 1
     except (CLIError, PermissionError, OSError, ValueError, KeyError, TypeError, sqlite3.Error) as exc:
         print(json.dumps(dict(errors=[dict(type=exc.code if isinstance(exc, CLIError) else 'operation_failed')])))
         return 1

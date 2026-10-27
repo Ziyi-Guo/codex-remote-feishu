@@ -86,7 +86,7 @@ func (s *Service) ensureSurface(action control.Action) *state.SurfaceConsoleReco
 		if action.ChatID != "" {
 			surface.ChatID = action.ChatID
 		}
-		if action.ActorUserID != "" {
+		if action.ActorUserID != "" && action.Kind != control.ActionReactionCreated && action.Kind != control.ActionMessageRecalled {
 			surface.ActorUserID = action.ActorUserID
 		}
 		if surface.PendingRequests == nil {

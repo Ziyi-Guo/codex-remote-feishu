@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
+	"github.com/kxn/codex-remote-feishu/internal/feishuidentity"
 )
 
 const workMemoryLimit = 64 << 10
@@ -25,6 +26,8 @@ type workMemoryManifest struct {
 	Owner         string `json:"owner_user_id"`
 	Bindings      []struct {
 		Surface string              `json:"surface_id"`
+		Gateway string              `json:"gateway_id,omitempty"`
+		Chat    string              `json:"chat_id,omitempty"`
 		Active  []string            `json:"active_work_ids"`
 		Threads map[string][]string `json:"thread_bindings"`
 	} `json:"bindings"`
@@ -161,7 +164,11 @@ func (r *workMemoryRuntime) prepareSync(req workMemoryRequest, privacyChecked fu
 	found := false
 	for _, binding := range manifest.Bindings {
 		if binding.Surface != req.Surface {
-			continue
+			ref, parsed := feishuidentity.ParseSurfaceRef(req.Surface)
+			if manifest.Mode != "on_demand" || binding.Surface != "" || binding.Gateway == "" || binding.Chat == "" || !parsed ||
+				ref.GatewayID != binding.Gateway || ref.ChatID() != binding.Chat || req.Chat != binding.Chat {
+				continue
+			}
 		}
 		if found {
 			return workMemoryResult{}

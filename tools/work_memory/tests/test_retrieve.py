@@ -33,10 +33,10 @@ class RetrieveTests(unittest.TestCase):
         path.write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
         path.chmod(0o600)
 
-    def add_work(self, work_id, title, aliases):
+    def add_work(self, work_id, title, aliases, **metadata):
         self.write(self.root / 'dossiers' / work_id / 'manifest.json',
                    dict(schema_version=1, work_id=work_id, title=title, aliases=aliases,
-                        owner_id='owner', visibility='owner', version='1'))
+                        owner_id='owner', visibility='owner', version='1', **metadata))
 
     def read_dossier(self, root, work_id, requester_id, section='home', audience='owner'):
         manifest = json.loads((self.root / 'dossiers' / work_id / 'manifest.json').read_text())
@@ -64,17 +64,84 @@ class RetrieveTests(unittest.TestCase):
             self.assertEqual('', result['content'])
             reader.assert_not_called()
 
-    def test_unrelated_query_is_empty_and_does_not_read_body(self):
+    def test_unmatched_query_returns_catalog_fallback_without_body(self):
         with patch('profc_memory.retrieve.read_dossier') as reader:
-            result = self.call(query='今天北京天气')
-            self.assertEqual('none', result['status'])
+            result = self.call(query='客户用自己买的模型资源该怎么接')
+            self.assertEqual('catalog_fallback', result['status'])
+            self.assertEqual('no_candidate_match', result['fallback_reason'])
+            self.assertEqual(['byok', 'cli'], [c['work_id'] for c in result['candidates']])
+            self.assertEqual(2, result['catalog_total'])
+            self.assertFalse(result['catalog_truncated'])
+            self.assertEqual('', result['content'])
             self.assertEqual(0, result['chars'])
             reader.assert_not_called()
+
+    def test_catalog_metadata_uses_private_config_and_verified_manifest(self):
+        self.add_work('byok', '自带密钥', ['BYOK'], summary='已核实的项目简介。',
+                      receipt=dict(built_at='2026-10-26T12:00:00Z'))
+        self.write(self.root / 'config.json', dict(schema_version=1, owner_id='owner', works=[
+            dict(work_id='byok', summary='客户使用自购模型资源；当前确认接入方式。', aliases=['BYOK', '客户自购模型资源']),
+            dict(work_id='outside', summary='没有本机档案的配置项。')]))
+        with patch('profc_memory.retrieve.read_dossier') as reader:
+            result = self.call(query='客户自购模型资源')
+            self.assertEqual('candidates', result['status'])
+            self.assertEqual(['byok'], [c['work_id'] for c in result['candidates']])
+            candidate = result['candidates'][0]
+            self.assertEqual('客户使用自购模型资源；当前确认接入方式。', candidate['summary'])
+            self.assertEqual('2026-10-26T12:00:00Z', candidate['updated_at'])
+            self.assertEqual(['BYOK', '客户自购模型资源'], candidate['aliases'])
+            reader.assert_not_called()
+
+    def test_catalog_metadata_keeps_old_manifests_compatible(self):
+        candidate = self.call(query='BYOK')['candidates'][0]
+        self.assertEqual('', candidate['summary'])
+        self.assertEqual('', candidate['updated_at'])
+        self.add_work('byok', '自带密钥', ['BYOK'], summary='项目简介。',
+                      updated_at='2026-10-27T12:00:00Z', receipt=dict(built_at='older'))
+        candidate = self.call(query='BYOK')['candidates'][0]
+        self.assertEqual('项目简介。', candidate['summary'])
+        self.assertEqual('2026-10-27T12:00:00Z', candidate['updated_at'])
+
+    def test_catalog_fallback_is_bounded_and_does_not_confirm_a_project(self):
+        for index in range(21):
+            self.add_work('work_' + str(index), '项目' + str(index), [])
+        with patch('profc_memory.retrieve.read_dossier') as reader:
+            result = self.call(query='找一下此前的接入讨论', session_id='fallback')
+            self.assertEqual('catalog_fallback', result['status'])
+            self.assertEqual(20, len(result['candidates']))
+            self.assertEqual(23, result['catalog_total'])
+            self.assertTrue(result['catalog_truncated'])
+            self.assertEqual('catalog_fallback', self.call(query='它现在怎么样', session_id='fallback')['status'])
+            reader.assert_not_called()
+
+    def test_unmatched_query_clears_current_work_even_with_single_catalog_entry(self):
+        (self.root / 'dossiers/cli/manifest.json').unlink()
+        self.call(work_id='byok', session_id='single')
+        with patch('profc_memory.retrieve.read_dossier') as reader:
+            result = self.call(query='接入讨论', session_id='single')
+            self.assertEqual('catalog_fallback', result['status'])
+            self.assertEqual(['byok'], [c['work_id'] for c in result['candidates']])
+            self.assertEqual('catalog_fallback', self.call(query='它现在怎么样', session_id='single')['status'])
+            reader.assert_not_called()
+
+    def test_catalog_metadata_rejects_invalid_or_oversized_values(self):
+        for metadata in [dict(summary=['untrusted']), dict(summary='x' * 241),
+                         dict(summary='第一行\n第二行'), dict(updated_at=[]),
+                         dict(receipt=dict(built_at=1))]:
+            with self.subTest(metadata=metadata):
+                self.add_work('byok', '自带密钥', ['BYOK'], **metadata)
+                with self.assertRaises(ValueError):
+                    self.call(query='BYOK')
+        self.add_work('byok', '自带密钥', ['BYOK'])
+        self.write(self.root / 'config.json', dict(schema_version=1, owner_id='owner', works=[
+            dict(work_id='byok', summary=['invalid'])]))
+        with self.assertRaises(ValueError):
+            self.call(query='BYOK')
 
     def test_unconfirmed_topic_switch_cannot_reuse_old_project_for_pronoun(self):
         self.call(work_id='byok',session_id='switch')
         self.call(query='所有持续事项',session_id='switch')
-        self.assertEqual('none',self.call(query='它怎么样',session_id='switch')['status'])
+        self.assertEqual('catalog_fallback',self.call(query='它怎么样',session_id='switch')['status'])
 
     def test_broad_query_returns_metadata_only(self):
         result = self.call(query='所有持续事项')
@@ -131,6 +198,22 @@ class RetrieveTests(unittest.TestCase):
         self.assertEqual('candidates', self.call(query='Prof.C')['status'])
         self.assertEqual('read', self.call(work_id='profc', after_compaction=True)['status'])
 
+    def test_real_archive_goal_section_is_readable_on_demand(self):
+        from profc_memory.archive import apply_dossier
+        from profc_memory.ledger import Ledger
+        self.reader.stop()
+        with Ledger(self.root / 'ledger.sqlite3', 'owner') as ledger:
+            ledger.register_work('profc', 'Prof.C')
+            snapshot = ledger.read_work('profc', 'owner')
+        sections = {s: '此栏目尚待核验。' for s in ['现状', '背景', '问题', '决策', '近期关注']}
+        sections['目标'] = '当前目标：按需读取项目目标，并保留完成条件。'
+        apply_dossier(self.root, snapshot, dict(sections=sections, decisions=[], reason='目标栏目契约验证'))
+        result = self.call(work_id='profc', section='目标', session_id='goal')
+        self.assertEqual('read', result['status'])
+        self.assertEqual(sections['目标'], result['content'])
+        self.assertEqual('目标', result['receipt']['section'])
+        self.assertEqual('unchanged', self.call(work_id='profc', section='目标', session_id='goal')['status'])
+
     def test_external_private_canonical_directory_catalog_and_read(self):
         from profc_memory.archive import apply_dossier
         from profc_memory.ledger import Ledger
@@ -149,7 +232,7 @@ class RetrieveTests(unittest.TestCase):
             result = self.call(query='Prof.C')
             self.assertEqual('candidates', result['status'])
             self.assertEqual(str(external / 'profc/home.md'), result['candidates'][0]['path'])
-            self.assertEqual('none', self.call(query='BYOK')['status'])
+            self.assertEqual('catalog_fallback', self.call(query='BYOK')['status'])
             result = self.call(work_id='profc', session_id='outside')
             self.assertEqual('外部正本尚待验收。', result['content'])
             self.assertTrue((self.root / 'retrieval/read_receipts.jsonl').exists())
@@ -195,15 +278,15 @@ class RetrieveTests(unittest.TestCase):
                 self.call(work_id='byok', **args)
 
     def test_pronouns_inherit_only_confirmed_current_work(self):
-        self.assertEqual('none', self.call(query='它现在怎么样', session_id='s')['status'])
+        self.assertEqual('catalog_fallback', self.call(query='它现在怎么样', session_id='s')['status'])
         self.call(query='BYOK', session_id='s')
-        self.assertEqual('none', self.call(query='它现在怎么样', session_id='s')['status'])
+        self.assertEqual('catalog_fallback', self.call(query='它现在怎么样', session_id='s')['status'])
         self.call(work_id='byok', session_id='s')
         self.assertEqual('read', self.call(query='它现在怎么样', section='背景', session_id='s')['status'])
         result = self.call(query='这个CLI现在怎么样', session_id='s')
         self.assertEqual('candidates', result['status'])
         self.assertEqual(['cli'], [c['work_id'] for c in result['candidates']])
-        self.assertEqual('none', self.call(query='它现在怎么样', session_id='other')['status'])
+        self.assertEqual('catalog_fallback', self.call(query='它现在怎么样', session_id='other')['status'])
 
     def test_budget_preserves_complete_paragraphs_and_negation(self):
         self.content = '部署已完成，尚未通过验收。\n\n' + '不能上线。' * 20
@@ -249,7 +332,10 @@ class RetrieveTests(unittest.TestCase):
 
     def test_resolver_cannot_inject_global_facts_or_unknown_work(self):
         resolver = lambda query: [{'facts': 'unrelated global private text'}, {'work_id': 'outside'}]
-        self.assertEqual('none', self.call(query='天气', resolver=resolver)['status'])
+        result = self.call(query='天气', resolver=resolver)
+        self.assertEqual('catalog_fallback', result['status'])
+        self.assertNotIn('unrelated global private text', json.dumps(result))
+        self.assertNotIn('outside', json.dumps(result))
         def unavailable(query):
             raise OSError('401 private details')
         result = self.call(query='BYOK', resolver=unavailable)
@@ -268,9 +354,9 @@ class RetrieveTests(unittest.TestCase):
             self.assertNotIn('must not enter', json.dumps(result))
             reader.assert_not_called()
 
-    def test_resolver_empty_result_keeps_unrelated_query_empty(self):
+    def test_resolver_empty_result_keeps_catalog_fallback_without_body(self):
         result = self.call(query='天气', resolver=lambda query: [])
-        self.assertEqual('none', result['status'])
+        self.assertEqual('catalog_fallback', result['status'])
         self.assertEqual(0, result['chars'])
 
     def test_owner_check_happens_before_resolver(self):

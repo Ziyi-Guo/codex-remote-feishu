@@ -18,7 +18,7 @@ from .collect import sanitize_content
 from .evidence import complete_quote as _complete_quote, quote_options
 
 MAX_SOURCES = 8
-MAX_INPUT_CHARS = 48000
+MAX_INPUT_CHARS = 64000
 MAX_OUTPUT_CHARS = 64000
 KINDS = ['proposal', 'decision', 'progress', 'verification', 'correction',
          'scope_extension', 'open_question', 'risk', 'source_update']
