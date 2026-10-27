@@ -34,6 +34,8 @@ type Translator struct {
 	suppressedThreadStarted    map[string]bool
 	childRestartRestorePolicy  *agentproto.CodexResumePolicy
 
+	appliedDeveloperInstructions map[string]string
+
 	latestThreadStartParams map[string]any
 	latestTurnStartTemplate map[string]any
 	turnStartByThread       map[string]map[string]any
@@ -175,5 +177,7 @@ func NewTranslator(instanceID string) *Translator {
 		pendingThreadReads:         map[string]pendingThreadRead{},
 		lastOwnedGoalMutations:     map[string]ownedGoalMutation{},
 		reasoningSummaryIndexes:    map[string]map[int]bool{},
+
+		appliedDeveloperInstructions: map[string]string{},
 	}
 }

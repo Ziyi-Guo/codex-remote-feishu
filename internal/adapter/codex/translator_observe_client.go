@@ -41,6 +41,7 @@ func (t *Translator) ObserveClient(raw []byte) (Result, error) {
 		}}}, nil
 	case "thread/resume":
 		threadID, _ := params["threadId"].(string)
+		delete(t.appliedDeveloperInstructions, threadID)
 		t.invalidateChangedModelEvidence(threadID, params)
 		cwd, _ := params["cwd"].(string)
 		t.currentThreadID = threadID

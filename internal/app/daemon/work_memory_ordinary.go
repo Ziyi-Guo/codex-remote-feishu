@@ -7,7 +7,7 @@ import "github.com/kxn/codex-remote-feishu/internal/core/agentproto"
 func (r *workMemoryRuntime) noteOrdinaryDispatch(req workMemoryRequest, result workMemoryResult) {
 	r.proofMu.Lock()
 	defer r.proofMu.Unlock()
-	if result.Text != "" {
+	if result.Text != "" || result.DeveloperInstruction != "" {
 		delete(r.ordinaryThreads, req.Command.Target.ThreadID)
 		return
 	}

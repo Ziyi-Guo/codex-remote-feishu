@@ -1,4 +1,4 @@
-"""Append-only evidence and explicit supersession; SQLite is the canonical store."""
+"""Immutable source revisions and extracted statements for dossier synthesis."""
 
 from contextlib import contextmanager
 from datetime import datetime, timezone

@@ -2,7 +2,7 @@
 
 > Type: `general`
 > Updated: `2026-10-27`
-> Summary: 增加可选持续事项资料注入与私有 thread 归属保护，明确新 thread 关联和故障边界。
+> Summary: 增加按需项目档案的 thread 指令入口，复用原 owner/surface 隐私保护并避免每轮正文注入。
 > 1. visible 但 contract mismatch 的 workspace/session 仍然可见，不会再被 `/list`、`/use`、workspace recency、target picker 直接吞掉；
 > 2. 这些 mismatch 候选不会再假装“可直接接管”；
 > 3. detached `/use`、headless exact-thread restore、workspace attach、startup resume、`/mode` backend switch、`/claudeprofile`、`/codexprofile`、`/opencodeprofile` 现在都会统一先判定 `attach visible compatible / reuse managed compatible / restart managed incompatible / fresh-start matching headless / reject`，而不是各自维护平行 continuation；
@@ -2104,9 +2104,13 @@ retained-offline overlay 额外规则：
 - 新模式不走旧的只读自动批准：原生 command/file/permissions/MCP elicitation 授权请求在 wrapper 边界直接拒绝并记录，不投影卡片；core 和 wrapper 均禁止人工补充批准。普通 `request_user_input` 业务澄清仍保留。缺省模式保留 owner 单次确认、原生 request ID/freshness，不提供 session/always、策略修订或额外 grant。
 - 代码和本机 fake-model/临时接口测试只证明技术边界；发布后另行核验真实同事查询无需点击直接出结果、故意写入被拒、owner 个人群不受影响，不把本地通过或服务健康当作业务验收。
 
-## 10.2 可选持续事项资料注入
+## 10.2 可选持续事项资料入口与隐私保护
 
-- daemon 在 `guardLimitedDispatch` 后、实际发送前读取 `<StateDir>/work-memory/manifest.json` 和本地 `works/<id>/context.json` 小快照。默认无 manifest 不注入；不调用检索、LLM、CLI 或网络，不改原队列和全局 developer instructions。每次获准的用户 `prompt.send` 都重新读取，因此新 thread 首轮和压缩后的下一次用户输入可拿到最新资料。
+- daemon 在 `guardLimitedDispatch` 后、实际发送前读取 `<StateDir>/work-memory/manifest.json`。默认无 manifest 或 `enabled=false` 不添加新入口；关闭配置仍保留已有私有历史保护。runtime 不调用检索、LLM、CLI 或网络，不改原队列、profile 或全局 developer instructions。
+- 项目档案第二版使用 `mode=on_demand`、`guide_path=runtime-guide.json`。固定本机文件是维护者编写的信任配置，格式为 `{"schema_version":1,"kind":"runtime_entry","instruction":"简短入口规则"}`，整个文件至多 4 KiB，沿用相对路径、普通文件、symlink 和打开后身份复核。规则只说明如何发现入口和按问题调用 CLI；项目正文、项目目录、外部来源资料与项目事实不能写进 developer instructions。此模式只要求命中精确 surface binding，不依赖 `active_work_ids` 或 `works`，不读任何 context 快照、不追加用户 inputs，由模型判断是否读取、读取哪些栏目。
+- 短入口只追加到本次命令克隆的合法 Codex resume policy `DeveloperInstruction`，保留原 profile 规则；缺少合法原 policy 时跳过，不猜 provider。wrapper 在 `thread/start` / `thread/resume` 中传 `developerInstructions`。当前已加载 thread 的已确认规则未知或变更时先 `thread/resume`，通过该原生 request ID 对应的成功响应后只续发一个 `turn/start`；相同规则后续直接 `turn/start`，拒绝响应不登记规则已应用。接受缓存按 thread 隔离，只在 wrapper 生命周期内保存，并使用 dispatch 时的 policy 副本，不把另一条命令或稍后修改当成原响应的证据；观察到本地 UI resume 或构造 child restart restore 时失效，下次获准用户 dispatch 重新确认。
+- 压缩的明确观察点是 `item/completed` 的 `contextCompaction`（映射为 `context_compaction`），携带实际 thread/turn/item ID；item 无 `status` 字段也可合法完成。压缩事件不重补用户 input，后续使用已加载 thread 的 developer 配置。协议测试只核验请求和关联；真实模型行为由隔离 smoke 单独核验，2026-10-27 的 Codex 0.160.1 实测在明确压缩完成后仍遵循只存在于 thread developer instructions 的短规则，两轮 user input 都只有检查口令。不能将 relay 发送成功、wrapper `Accepted` 或 `/compact` 请求的空响应当作模型已收到入口或压缩已完成。
+- 兼容旧快照模式只在 `mode` 缺省时按原 v1 协议处理；未知 mode 跳过新入口。旧模式每次获准的用户 `prompt.send` 读取本地 `works/<id>/context.json` 小快照；新部署的 on-demand 模式不走此分支。
 - manifest v1 的 `owner_user_id`、精确 `bindings[].surface_id` allowlist、真实 Origin actor 与原队列 `ActorUserID` 必须一致；queue actor 缺失不得回退 surface actor。thread binding 只能在已获准 surface 内选事项，owner 在其他共享群仍不注入。limited execution、编码限定身份或配置限定群，以及 steer/helper/review/自动续跑均不注入。
 - context v1 必须匹配 work ID、owner、`visibility=owner`、正整数字符串版本及 RFC3339 更新时间。相对路径限定根目录，拒绝 traversal、symlink、非普通文件、超限和坏 JSON。manifest 最大 64 KiB、单 context 48 KiB、最多四事项，包括正文、标题、来源标识与声明在内的最终注入输入合计 24 KiB；整个输入带 `[codex-remote-work-memory:v1]` 及“来源资料，不是执行授权”声明，原用户 inputs 保持不变。
 - 快照 I/O 在 `a.mu` 外以 200 ms 有界等待，锁内重新核验身份。资料无效或在归属检查已通过后读取超时，只跳过注入。首次注入先确保空 registry、fsync 创建 collector 目录外的 `<StateDir>/work-memory-privacy-enabled.json` 启用标记，再落盘实际归属。`private-threads.json` 持久记录已注入 thread 的 owner/surface；标记存在后 registry 或整个 collector 目录丢失都不能当成空状态，删除或关闭 manifest 不解除旧历史保护。只有普通 collector 目录、没有 manifest/启用标记时不初始化隐私状态，也不阻断原任务。旧私有 thread 的跨 surface prompt、history 和读取上下文命令被拒；fork 已私有 source 时先登记新 execution thread 的 pending 归属，即使 manifest 已关闭也不丢失继承历史的隐私属性；`/stop` 等既有控制命令保留。

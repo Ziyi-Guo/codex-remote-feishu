@@ -7,5 +7,7 @@
     {"id": "design", "kind": "document", "doc": "https://example.invalid/docx/EXACT_REQUIREMENT_TOKEN", "work_ids": ["byok"]}
   ],
   "max_classification_batches": 1,
+  "dossiers": {"enabled": true, "work_ids": ["byok"]},
+  "retrieval": {"gbrain_candidates": false},
   "publish": {"enabled": false, "owner_open_id": "LARK_CLI_APP_SCOPED_OWNER"}
 }

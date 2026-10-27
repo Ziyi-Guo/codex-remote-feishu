@@ -1,67 +1,66 @@
-# Prof.C 持续事项记忆 MVP
+# Prof.C 持续事项记忆
 
-把已指定事项的聊天、文档和会议产物变成可追溯的私有历史。SQLite 是事实账本；飞书文档、Markdown 脉络和对话上下文都是派生视图。采集成功只表示读到资料，来源中的“上线”“测试通过”仍是来源陈述。
+人和 agent 共同使用一份有版本的项目档案。首页回答现状、背景、问题、决策和近期关注；详细取舍放在 decisions/，来源页提供人物、日期、标题和原始链接。原始资料按版本留存在本机证据库，整理后的 Markdown 可以直接作为 Obsidian 正本。
 
-## 数据怎样流动
+## 档案与更新
 
-1. `collect` 通过现有 `lark-cli --as user` 读取白名单来源，保存确切链接、来源版本、发生时间、采集时间及实际发送人。文档没有可证实的发生时间时保留未知。
-2. 聊天只有精确项目词、文档 token 或任务 ID 等强锚点才正式关联。群成员身份不等于事项相关性；无锚点资料保留在本地，不进入模型和正式上下文。文档需配置明确的事项关联。
-3. `classify` 调用临时、关闭工具与用户配置的 `codex exec`，从完整原文片段中选关键事实。程序重新核对引用、人物、时间、事项及替代关系，失败保留 pending 并退避。
-4. 事件只追加。新事实不会仅因采集较晚覆盖旧事实；只有同事项、同阶段、同维度、明确引用旧事实的纠正才建立替代边。旧版本晚到不能替代新版本。
-5. `render` 写出每事项的 `timeline.md` 与最多 3200 字符的 `context.json`。上下文按类别保留近期证据，明确注明节选及完整历史路径。历史没有被节选策略删除。
-6. 可选 `publish` 将同一账本投影到固定私有飞书文档。先验证当前用户及文档权限；外链关闭、外部访问关闭，协作者只能是该用户。写入使用远端 revision；人工修改产生漂移后停止自动覆盖。创建结果未知不重建，写入结果未知先只读验收。
+`run` 依次采集限定来源、提取来源陈述、渲染诊断视图，以及整理已启用的项目。来源版本变化才重新整理，每轮最多一个项目，失败退避一小时。首版注明根据现有资料重建，不能冒充过去某天已经形成的判断。
 
-这不是全账号自动搜索。MVP 仅处理配置来源和窗口；会议当前通过明确绑定的会议产物文档读取，不会自动入会或监听全部会议。新增群、私聊、会议文档和完全没有强锚点的短回复需要补充来源或明确关联。读取能力仍取决于现有身份权限。
+来源库保存完整的已清洗原文、版本和链接。events 是供整理和审计使用的来源陈述，不是另一份独立维护的决策正本。新增资料只有强锚点才能永久归并，群成员身份不等于相关性。提议、部署、测试和业务验收保持各自含义。
 
-## 运行
+每个项目目录包含 home.md、decisions/*.md、sources.md、manifest.json 和 versions/<版本>/ 快照。段落引用必须匹配事项库中的真实来源和版本，链接由程序生成，原始聊天不搬入 Obsidian。程序核实引用与安全边界，摘要是否保留原意仍需语义验收。可证明较旧的来源版本不能作为首页现状或有效决策栏的依据。
 
-需要 Python 3.10+、已登录的 `lark-cli`、可运行的 `codex`。仅使用 Python 标准库。
+页面末尾“人工补充”区在重编译时保留。机器区被手改会返回 drift 并暂停覆盖。原文标识只放审计元数据；读取正文时去除 HTML 注释。版本快照保留当时页面与构建原因。
 
-状态目录须为当前 OS 用户所有、权限 `0700`；`config.json` 为 `0600`。真实消息、凭据、运行态和配置不要放进 Git。
+## 按需读取
+
+需要 Python 3.11+、已登录的 lark-cli 和 codex，业务模块仅用标准库。状态目录0700，config与文件0600。真实身份、原始数据和认证信息不进Git。
 
 ```sh
 PYTHONPATH=tools/work_memory PYTHONDONTWRITEBYTECODE=1 \
-  python3 -m profc_memory --state-dir "$PRIVATE_STATE" run
+  python3 -m profc_memory --state-dir "$PRIVATE_STATE" recall \
+  --requester-id "$RUNTIME_OWNER_ID" --query 'BYOK'
 
-# 只读状态及本人上下文
-PYTHONPATH=tools/work_memory python3 -m profc_memory --state-dir "$PRIVATE_STATE" status
-PYTHONPATH=tools/work_memory python3 -m profc_memory --state-dir "$PRIVATE_STATE" \
-  context --work-id byok --requester-id "$RUNTIME_OWNER_ID" --audience owner
+PYTHONPATH=tools/work_memory PYTHONDONTWRITEBYTECODE=1 \
+  python3 -m profc_memory --state-dir "$PRIVATE_STATE" recall \
+  --requester-id "$RUNTIME_OWNER_ID" --work-id byok --section 现状 \
+  --session-id "$NATIVE_THREAD_ID" --max-chars 1600
 ```
 
-`collect`、`classify`、`render`、`publish` 可以单独执行。`run` 顺序采集、提取、渲染；仅在 `publish.enabled=true` 时更新远端页。全流程使用非阻塞文件锁，已有运行时拒绝重叠。一个来源失败不阻止其他来源；部分分页失败不会推进该来源游标。每次默认最多 1 批、每批最多 8 个来源，单批提取限时 120 秒；错误退避 1–24 小时，不做无限重试。
+query只返回项目候选和入口，不读项目正文。确认事项后再读相关栏目，必要时使用 `--section decision:<slug>` 或 sources。无关问题不发起读取；询问进展、可用性或完成度，应同时核对“现状”和“问题”。
 
-配置示例见 [config.example.json](config.example.json)。两个 owner ID 属于不同应用的身份空间，不能按字符串相等推断是否同一人；启用发布前应实际核验映射。`max_classification_batches` 最大为 5。
+相同session/事项/栏目/版本/正文不重复返回。切换事项、版本或人工补充变化会刷新；压缩导致相关正文不再在上下文时传 `--after-compaction`。字符预算按完整段落装入并返回truncated，不能把省略的材料当成不存在。模型token开销需从真实调用回执另外核对。
 
-消息来源可设 `reconcile_days=30`，每次重查近 30 天且不早于 `start`，只提取新增或改变的来源版本。这能发现窗口内旧消息编辑，但不能保证发现退出关键词过滤的编辑、窗口外编辑或所有旧话题的新回复。CLI 仅给分钟精度时，来源版本加入内容 hash，同一分钟内的多个版本保持不可排序。`collection_status.json` 记录每来源最近覆盖窗口和错误；“无新增”不等于“全部世界没有变化”。
+缓存与审计回执位于state/retrieval，按requester/audience/session隔离。非owner和shared拒绝，路径遍历和符号链接拒绝。此机制面向同一可信OS用户，文件权限不能替代进程隔离。
 
-## 对话接入
+## 配置与会话入口
 
-daemon 使用自己的 `StateDir/work-memory/manifest.json`，默认未配置时不注入。只有原始用户输入、实际 queue actor 等于 owner、消息 ID 一致、完整 surface 已配置且非 limited/helper/自动续办时才注入。每个获准的 `prompt.send` 重新读取，因此新 thread 和压缩后的下一轮不依赖旧对话摘要。
+示例见 [config.example.json](config.example.json)。dossiers.enabled和work_ids启用限定项目；dossiers.directory可指定绝对私有Markdown正本目录，例如选定的Obsidian子目录，默认state/dossiers。读写使用同一目录和锁，不另维护镜像结论。
+
+retrieval.gbrain_candidates可使用现有认证的loopback GBrain MCP entity定位候选。只接受本地已有项目的明确标识，忽略facts/正文，失败回退本地目录。不另开PGLite、不写GBrain、不启付费embedding。远端私有正文读取尚未验证，项目正文始终从本人受保护的本机正本读取；服务可用不等于项目已被索引，空命中不等于没有历史。
+
+第二版manifest示例：
 
 ```json
 {
   "schema_version": 1,
+  "mode": "on_demand",
   "enabled": true,
   "owner_user_id": "RUNTIME_APP_SCOPED_OWNER",
-  "bindings": [
-    {"surface_id": "EXACT_VERIFIED_PRIVATE_SURFACE", "active_work_ids": ["byok"]}
-  ],
-  "works": {"byok": {"context_path": "works/byok/context.json"}}
+  "guide_path": "runtime-guide.json",
+  "bindings": [{"surface_id": "EXACT_VERIFIED_PRIVATE_SURFACE"}]
 }
 ```
 
-绑定的是完整 surface，不能把一个私有话题的绑定扩展为整个群或其他人的会话。单次本地 I/O 等待有界，资料坏文件或读取失败会跳过注入；已知私有历史的归属无法核验时拒绝复用。私有 thread registry 和 collector 目录外的启用标记用于阻止丢文件后被误当成普通历史。新 thread 的关联由原生 request 的精确 CommandID 完成，不猜测当前 surface 的 pending 任务。
+固定runtime-guide.json为 `{"schema_version":1,"kind":"runtime_entry","instruction":"短入口规则"}`，最多4KiB。只放可信的发现/读取规则，不能放项目目录、正文或外部资料。入口追加到获准thread的developer instructions，保留profile规则；首次、规则变化或原生配置失效时，经精确thread/resume响应确认后再发本轮请求。不会向每条用户消息追加摘录。原owner/原surface的私有历史保护继续生效。
 
-注入块按不可信来源资料处理，不增加执行权限。debug raw 日志会脱敏带记忆标记的输入；这不代表模型派生回答或已有本机历史完全不留痕。该机制服务于同一可信 OS 用户的本人环境，不能代替 OS/容器隔离。
+## 范围与停用
 
-## 定时与停用
+采集只覆盖白名单。reconcile_days=30能重查窗口内变更，但不能保证发现退出关键词过滤的编辑、窗口外修改或所有旧话题新回复。会议通过明确绑定的产物读取，不自动入会；完全无锚点的材料仍需明确关联。
 
-试点可用单个 macOS LaunchAgent 每 1800 秒执行一次 `run`，`RunAtLoad=false`、无 `KeepAlive`，指向固定安装的 Python 包；标准输出仅存安全计数、版本、页 URL 和错误类型。先人工跑通一次并核对账本、页面和覆盖状态，再加载定时器。
+单个LaunchAgent可每1800秒运行一次run，无KeepAlive；流程互斥，分页失败不推进游标。停采集卸载定时器；停新入口将manifest.enabled设false。不要删除private-threads.json和目录外work-memory-privacy-enabled.json，停用不能解除已有私有历史保护。
 
-停采集：卸载对应 LaunchAgent。停远端更新：将配置 `publish.enabled` 设为 `false`。停新注入：将 manifest 的 `enabled` 设为 `false`。**不要删除 `private-threads.json` 或 `work-memory-privacy-enabled.json` 来停用**，关闭注入不应解除已有私有历史的保护。
-
-飞书是阅读视图；修正事实应追加带来源的纠正事件，不能直接改数据库旧行。MVP 没有 GBrain 写入、Obsidian 同步、自动业务执行或群通知。
+旧render/context/publish保留为第一版诊断兼容接口，旧快照模式仅mode缺省时兼容。第二版不使用旧摘录作为会话背景；旧飞书发布器也不更新第二版档案。业务执行、群通知、公开发布不属于本模块。
 
 ## 验证
 
@@ -71,4 +70,4 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools/work_memory \
 go test ./internal/app/daemon ./internal/adapter/codex ./internal/debuglog
 ```
 
-测试覆盖不可变证据、乱序版本、阶段关系、完整否定引用、密钥清洗、跨事项隔离、所有者检查、权限漂移、未知创建/写入恢复、冷启动/压缩后刷新及核心 lifecycle 不被可选记忆 I/O 吞掉。真实业务验收需另外核对实际来源、读回的固定页和实际部署版本。
+程序测试覆盖来源版本、否定引用、人工区、漂移、历史恢复、外部正本、预算和隔离。真实模型验收另保存输入、工具轨迹与结果，核对新会话是否真实读取、无关问题是否零正文读取及压缩后规则是否有效；native ack和服务健康不能替代这些结果。

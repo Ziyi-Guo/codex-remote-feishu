@@ -150,6 +150,24 @@ class CLITests(unittest.TestCase):
         self.assertEqual('owner', publish.call_args.args[1]['owner_id'])
         self.assertEqual('cli-owner', publish.call_args.args[2])
 
+    @patch('profc_memory.cli.retrieve')
+    def test_recall_delegates_without_opening_ledger_or_collecting(self, read):
+        read.return_value = dict(status='none',chars=0,content='')
+        result = execute(self.root,'recall',requester_id='owner',query='天气怎么样',session_id='cold')
+        self.assertEqual(0,result['chars'])
+        self.assertFalse((self.root/'ledger.sqlite3').exists())
+        self.assertEqual('cold',read.call_args.kwargs['session_id'])
+
+    @patch('profc_memory.cli.synthesize')
+    @patch('profc_memory.cli.apply_dossier')
+    def test_dossier_build_records_input_revision_and_skips_unchanged(self, apply, synth):
+        synth.return_value = dict(draft={'sections':{}},errors=[])
+        apply.return_value = dict(status='updated',version='1')
+        result = execute(self.root,'dossier',work_id='byok')
+        self.assertEqual(1,result['dossiers_updated'])
+        self.assertEqual(0,execute(self.root,'dossier',work_id='byok')['dossiers_updated'])
+        self.assertEqual(1,synth.call_count)
+
     def test_missing_config_unsafe_permissions_and_traversal_rejected(self):
         (self.root/'config.json').chmod(0o644)
         with self.assertRaises(CLIError):

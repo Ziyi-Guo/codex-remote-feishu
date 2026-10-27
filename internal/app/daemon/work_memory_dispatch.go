@@ -3,6 +3,7 @@ package daemon
 import (
 	"path/filepath"
 	"reflect"
+	"strings"
 
 	gatewaypkg "github.com/kxn/codex-remote-feishu/internal/adapter/feishu/gateway"
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
@@ -76,6 +77,10 @@ func (a *App) prepareWorkMemoryCommandLocked(surfaceID, instanceID string, c age
 		inputs := make([]agentproto.Input, 0, len(c.Prompt.Inputs)+1)
 		inputs = append(inputs, agentproto.Input{Type: agentproto.InputText, Text: result.Text})
 		c.Prompt.Inputs = append(inputs, c.Prompt.Inputs...)
+	}
+	if result.DeveloperInstruction != "" {
+		c.CodexResume = agentproto.CloneCodexResumePolicy(c.CodexResume)
+		c.CodexResume.DeveloperInstruction = strings.TrimSpace(c.CodexResume.DeveloperInstruction + "\n\n" + result.DeveloperInstruction)
 	}
 	return c, nil
 }

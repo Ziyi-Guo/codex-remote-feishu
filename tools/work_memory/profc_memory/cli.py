@@ -17,6 +17,10 @@ from .collect import bounded_anchor_matches, collect_source
 from .ledger import Ledger
 from .render import build_context, render_work
 from .publish import publish_work
+from .archive import apply_dossier, read_dossier, dossier_directory
+from .retrieve import retrieve
+from .synthesize import synthesize, SYNTHESIS_VERSION
+from .gbrain import gbrain_candidates
 
 
 class CLIError(ValueError):
@@ -86,6 +90,11 @@ def _config(state_dir):
     if (not isinstance(publishing, dict) or type(publishing.get('enabled', False)) is not bool
             or (publishing.get('enabled') and not isinstance(publishing.get('owner_open_id'), str))
             or (publishing.get('enabled') and not publishing['owner_open_id'])):
+        raise CLIError('invalid_config')
+    dossiers = config.get('dossiers', {})
+    if (not isinstance(dossiers, dict) or type(dossiers.get('enabled', False)) is not bool
+            or not isinstance(dossiers.get('work_ids', []), list)
+            or any(w not in work_ids for w in dossiers.get('work_ids', []))):
         raise CLIError('invalid_config')
     return root, config
 
@@ -307,8 +316,66 @@ def _publish(root, config, ledger):
     return result
 
 
-def execute(state_dir, command, *, until=None, requester_id=None, audience='owner', work_id=None):
+def _dossiers(root, config, ledger, work_id=None):
+    settings = config.get('dossiers', {})
+    allowed = settings.get('work_ids', [])
+    if work_id:
+        if work_id not in {w['work_id'] for w in config['works']}:
+            raise CLIError('unknown_work')
+        allowed = [work_id]
+    elif not settings.get('enabled'):
+        return dict(dossiers_updated=0, errors=[])
+    history = _read(root / 'dossier_build_status.json', {})
+    result = dict(dossiers_updated=0, errors=[])
+    for selected in allowed[:1]:
+        snapshot = ledger.read_work(selected, config['owner_id'])
+        last = history.get(selected, {})
+        if (str(last.get('source_revision')) == str(snapshot['revision'])
+                and last.get('compiler_version') == SYNTHESIS_VERSION):
+            continue
+        if not work_id and last.get('retry_after') and last['retry_after'] > _now():
+            continue
+        previous = None
+        if (dossier_directory(root) / selected).exists():
+            prior = read_dossier(root, selected, config['owner_id'])
+            if prior.get('status') == 'drift':
+                result['errors'].append(dict(type='dossier_drift'))
+                continue
+            previous = prior.get('content')
+        _mkdir(root / 'dossier_drafts')
+        draft_path = root / 'dossier_drafts' / (selected + '.json')
+        cached = _read(draft_path, {})
+        compiled = (dict(draft=cached['draft'],errors=[])
+                    if str(cached.get('source_revision')) == str(snapshot['revision']) and cached.get('draft')
+                    and cached.get('compiler_version') == SYNTHESIS_VERSION
+                    else synthesize(snapshot, previous=previous))
+        if compiled.get('errors'):
+            result['errors'] += compiled['errors']
+            history[selected] = dict(attempted_at=_now(), retry_after=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat())
+            continue
+        _write(draft_path,dict(source_revision=str(snapshot['revision']),compiler_version=SYNTHESIS_VERSION,draft=compiled['draft']))
+        try:
+            receipt = apply_dossier(root, snapshot, compiled['draft'])
+        except (ValueError,KeyError,TypeError):
+            result['errors'].append(dict(type='invalid_dossier'))
+            continue
+        if receipt.get('status') == 'drift':
+            result['errors'].append(dict(type='dossier_drift'))
+            continue
+        history[selected] = dict(source_revision=str(snapshot['revision']),compiler_version=SYNTHESIS_VERSION,
+                                 version=receipt['version'],generated_at=_now())
+        result['dossiers_updated'] += int(receipt['status'] == 'updated')
+    _write(root / 'dossier_build_status.json', history)
+    return result
+
+
+def execute(state_dir, command, *, until=None, requester_id=None, audience='owner', work_id=None,
+            query=None, section='现状', session_id=None, after_compaction=False, max_chars=1600):
     root, config = _config(state_dir)
+    if command == 'recall':
+        resolver = (lambda question:gbrain_candidates(question,config['works'])) if config.get('retrieval',{}).get('gbrain_candidates') else None
+        return retrieve(root,requester_id=requester_id,audience=audience,work_id=work_id,query=query,
+                        section=section,session_id=session_id,after_compaction=after_compaction,max_chars=max_chars,resolver=resolver)
     if command == 'context' and (requester_id != config['owner_id'] or audience != 'owner'):
         raise CLIError('forbidden')
     if command == 'context' and work_id not in {w['work_id'] for w in config['works']}:
@@ -331,12 +398,16 @@ def execute(state_dir, command, *, until=None, requester_id=None, audience='owne
             published = _publish(root, config, ledger)
             result['errors'] += published.pop('errors')
             result.update(published)
+        if command in ('dossier', 'run'):
+            dossiers = _dossiers(root,config,ledger,work_id if command == 'dossier' else None)
+            result['errors'] += dossiers.pop('errors')
+            result.update(dossiers)
         if command == 'status':
             result.update(pending=len(ledger.pending_sources()), failures=len(ledger.list_failures()),
                           versions={w['work_id']: str(ledger.read_work(w['work_id'], config['owner_id'])['revision']) for w in config['works']})
         if command == 'context':
             return _projection(root, config, ledger, work_id)[1]
-        if command not in ('collect', 'classify', 'render', 'publish', 'run', 'status'):
+        if command not in ('collect', 'classify', 'render', 'publish', 'run', 'status', 'dossier'):
             raise CLIError('invalid_command')
         return result
 
@@ -345,7 +416,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description='Owner-private work evidence memory')
     parser.add_argument('--state-dir', required=True)
     commands = parser.add_subparsers(dest='command', required=True)
-    for name in ('collect', 'classify', 'render', 'publish', 'run', 'status', 'context'):
+    for name in ('collect', 'classify', 'render', 'publish', 'run', 'status', 'context', 'dossier', 'recall'):
         command = commands.add_parser(name)
         if name in ('collect', 'run'):
             command.add_argument('--until')
@@ -353,6 +424,17 @@ def main(argv=None):
             command.add_argument('--work-id', required=True)
             command.add_argument('--requester-id', '--owner-id', dest='requester_id', required=True)
             command.add_argument('--audience', required=True)
+        if name == 'dossier':
+            command.add_argument('--work-id', required=True)
+        if name == 'recall':
+            command.add_argument('--requester-id', required=True)
+            command.add_argument('--audience', default='owner')
+            command.add_argument('--work-id')
+            command.add_argument('--query')
+            command.add_argument('--section', default='现状')
+            command.add_argument('--session-id')
+            command.add_argument('--after-compaction', action='store_true')
+            command.add_argument('--max-chars',type=int,default=1600)
     args = vars(parser.parse_args(argv))
     try:
         result = execute(**args)

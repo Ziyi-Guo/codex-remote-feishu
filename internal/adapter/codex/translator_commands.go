@@ -282,6 +282,7 @@ func (t *Translator) translateMCPOAuthLogin(command agentproto.Command) ([][]byt
 }
 
 func (t *Translator) translatePromptSend(command agentproto.Command) ([][]byte, error) {
+	command.CodexResume = agentproto.CloneCodexResumePolicy(command.CodexResume)
 	switch command.Target.EffectivePromptExecutionMode() {
 	case agentproto.PromptExecutionModeForkEphemeral:
 		return t.translatePromptSendForkEphemeral(command)
@@ -377,7 +378,7 @@ func (t *Translator) translatePromptSendResumeOrDirect(command agentproto.Comman
 		return t.translatePromptSendThreadStart(command, false)
 	}
 	delete(t.pendingLocalTurnByThread, command.Target.ThreadID)
-	if t.currentThreadID == "" || command.Target.ThreadID != t.currentThreadID {
+	if t.currentThreadID == "" || command.Target.ThreadID != t.currentThreadID || t.needsDeveloperInstructionRefresh(command.Target.ThreadID, command.CodexResume) {
 		requestID := t.NextRequest("thread-resume")
 		t.pendingThreadResume[requestID] = pendingThreadResume{
 			ThreadID: command.Target.ThreadID,
