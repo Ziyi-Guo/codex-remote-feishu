@@ -37,6 +37,10 @@ query只返回项目候选、一句话简介和更新时间，不读项目正文
 
 示例见 [config.example.json](config.example.json)。dossiers.enabled和work_ids启用限定项目；dossiers.directory可指定绝对私有Markdown正本目录，例如选定的Obsidian子目录，默认state/dossiers。读写使用同一目录和锁，不另维护镜像结论。
 
+协调读写的 `dossier.lock` 保存在本人本机状态目录，不放进 iCloud 正本目录；flock只协调本机进程，云端可写锁文件会使launchd任务卡在文件打开。项目文档与历史仍只保存于选定的Obsidian正本目录。
+
+定时运行应选不经过云盘的本机 Obsidian 目录。若 iCloud 后台文件访问仍阻塞，可迁移完整档案和版本到本机目录，原目录保留迁移前归档与入口说明；不新增第二份运行正本或后台服务。当前读取只验证当前文件，历史在明确请求时读取，不能每次查首页都扫描所有旧版本。
+
 retrieval.gbrain_candidates可使用现有认证的loopback GBrain MCP entity定位候选。只接受本地已有项目的明确标识，忽略facts/正文，失败回退本地目录。不另开PGLite、不写GBrain、不启付费embedding。远端私有正文读取尚未验证，项目正文始终从本人受保护的本机正本读取；服务可用不等于项目已被索引，空命中不等于没有历史。
 
 第二版manifest示例：

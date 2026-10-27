@@ -104,11 +104,12 @@ def dossier_directory(root, create=False):
 def _lock(root, create=False):
     directory = dossier_directory(root, create=create)
     _private(directory, True)
-    path = directory / '.archive.lock'
+    # flock coordinates local processes; a writable iCloud lock can block launchd.
+    path = root / 'dossier.lock'
     if path.is_symlink():
         raise ValueError('unsafe dossier lock')
-    flags = os.O_RDWR | getattr(os, 'O_NOFOLLOW', 0)
-    descriptor = os.open(path, flags | (os.O_CREAT if create else 0), 0o600)
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, 'O_NOFOLLOW', 0)
+    descriptor = os.open(path, flags, 0o600)
     try:
         _private(path)
         fcntl.flock(descriptor, fcntl.LOCK_EX if create else fcntl.LOCK_SH)
@@ -327,12 +328,26 @@ def _pages(root, snapshot, draft, config, previous=None):
 
 
 def _current(path, owner, work_id=None):
-    _tree(path)
+    _private(path, True)
+    _private(path / 'manifest.json')
     manifest = json.loads((path / 'manifest.json').read_text(encoding='utf-8'))
     if manifest.get('owner_id') != owner or manifest.get('visibility') != 'owner':
         raise PermissionError('dossier owner mismatch')
     if manifest.get('work_id') != (work_id or path.name) or manifest.get('schema_version') != 1:
         raise ValueError('invalid dossier manifest')
+    actual = set()
+    for item in path.iterdir():
+        if item.name == 'versions':
+            _private(item, True)
+        elif item.name == 'decisions':
+            _private(item, True)
+            for decision in item.iterdir():
+                _private(decision, decision.is_dir())
+                actual.add('decisions/' + decision.name)
+        else:
+            _private(item, item.is_dir())
+            if item.name not in ('manifest.json', 'receipt.json'):
+                actual.add(item.name)
     pages, missing = {}, []
     for relative in manifest['machine_hashes']:
         if not re.fullmatch(r'(?:home|sources|updates)\.md|decisions/[a-z0-9_-]{1,64}\.md', relative):
@@ -340,8 +355,8 @@ def _current(path, owner, work_id=None):
         if not (path / relative).exists():
             missing.append(relative)
         else:
+            _private(path / relative)
             pages[relative] = (path / relative).read_text(encoding='utf-8')
-    actual = {str(p.relative_to(path)) for p in path.glob('*.md')} | {str(p.relative_to(path)) for p in (path / 'decisions').glob('*.md')}
     drift = sorted(actual ^ set(pages)) + missing
     for name, text in pages.items():
         try:
@@ -422,7 +437,9 @@ def apply_dossier(state_dir, snapshot, draft, *, now=None):
         moved = False
         try:
             if old:
-                shutil.copytree(target / 'versions', stage / 'versions')
+                _tree(target / 'versions')
+                # A link appearing during copying must remain a link for stage validation.
+                shutil.copytree(target / 'versions', stage / 'versions', symlinks=True)
             for name, text in final.items():
                 _write(stage / name, text)
                 _write(stage / 'versions' / version / name, text)
@@ -487,8 +504,11 @@ def read_dossier(state_dir, work_id, requester_id, section='home', *, audience='
             content = '\n\n'.join(text for name, text in sorted(pages.items()) if name.startswith('decisions/'))
         elif section == 'history':
             entries = []
-            folders = [p for p in (target / 'versions').iterdir() if p.is_dir() and p.name.isdigit()]
+            _private(target / 'versions', True)
+            folders = [p for p in (target / 'versions').iterdir() if p.name.isdigit()]
             for folder in sorted(folders, key=lambda p:int(p.name)):
+                _private(folder, True)
+                _private(folder / 'receipt.json')
                 receipt = json.loads((folder / 'receipt.json').read_text(encoding='utf-8'))
                 entries.append('版本 ' + folder.name + '｜构建时间：' + receipt.get('built_at','未知')
                                + '\n变更原因：' + receipt.get('reason','未记录'))

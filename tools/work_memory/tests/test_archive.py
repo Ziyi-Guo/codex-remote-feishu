@@ -98,6 +98,113 @@ class ArchiveTests(unittest.TestCase):
             for item in (directory, *directory.rglob('*')):
                 self.assertEqual(0o700 if item.is_dir() else 0o600, item.stat().st_mode & 0o777)
 
+    def test_cloud_canonical_store_does_not_require_a_synced_writable_lock(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary).resolve() / 'cloud-archive'
+            self.configure_directory(directory)
+            original_open = os.open
+            def open_without_cloud_lock(path, flags, *args, **kwargs):
+                if Path(path) == directory / '.archive.lock':
+                    raise OSError('cloud provider blocks writable advisory lock')
+                return original_open(path, flags, *args, **kwargs)
+            with patch('profc_memory.archive.os.open', side_effect=open_without_cloud_lock):
+                self.assertEqual('updated', self.apply()['status'])
+                self.assertIn('现状', read_dossier(self.root, 'profc', 'owner')['content'])
+            self.assertEqual(0o600, (self.root / 'dossier.lock').stat().st_mode & 0o777)
+
+    def test_current_read_does_not_recursively_scan_historical_versions(self):
+        self.apply()
+        with patch.object(Path, 'rglob', side_effect=AssertionError('historical recursion blocks cloud reads')):
+            result = read_dossier(self.root, 'profc', 'owner')
+        self.assertEqual('ok', result['status'])
+        self.assertIn('现状的总结', result['content'])
+
+    def test_history_validates_receipts_without_reading_unrequested_historical_pages(self):
+        self.apply()
+        historical_home = self.root / 'dossiers/profc/versions/1/home.md'
+        historical_home.unlink()
+        historical_home.symlink_to(self.root / 'config.json')
+        self.assertEqual('ok', read_dossier(self.root, 'profc', 'owner')['status'])
+        history = read_dossier(self.root, 'profc', 'owner', section='history')
+        self.assertIn('版本 1', history['content'])
+        self.draft['sections']['现状'][0]['text'] = '需要生成新版本。'
+        with self.assertRaises(ValueError):
+            self.apply()
+
+    def test_history_rejects_symlinked_version_directories_and_receipts(self):
+        self.apply()
+        versions = self.root / 'dossiers/profc/versions'
+        (versions / '2').symlink_to(versions / '1', target_is_directory=True)
+        with self.assertRaises(ValueError):
+            read_dossier(self.root, 'profc', 'owner', section='history')
+        (versions / '2').unlink()
+        receipt = versions / '1/receipt.json'
+        receipt.unlink()
+        receipt.symlink_to(self.root / 'config.json')
+        with self.assertRaises(ValueError):
+            read_dossier(self.root, 'profc', 'owner', section='history')
+
+    def test_unknown_current_files_are_drift(self):
+        self.apply()
+        target = self.root / 'dossiers/profc'
+        for name in ['unknown.md', 'unknown.txt', 'decisions/unknown.txt']:
+            with self.subTest(name=name):
+                path = target / name
+                path.write_text('unknown current file')
+                path.chmod(0o600)
+                result = read_dossier(self.root, 'profc', 'owner')
+                self.assertEqual('drift', result['status'])
+                self.assertIn(name, result['drift'])
+                path.unlink()
+
+    def test_current_direct_files_still_require_private_permissions(self):
+        self.apply()
+        target = self.root / 'dossiers/profc'
+        for name in ['manifest.json', 'home.md', 'sources.md', 'updates.md', 'decisions/permission.md']:
+            with self.subTest(name=name):
+                path = target / name
+                path.chmod(0o644)
+                with self.assertRaises(ValueError):
+                    read_dossier(self.root, 'profc', 'owner')
+                path.chmod(0o600)
+
+    def test_current_manifest_and_decision_directory_symlinks_are_rejected(self):
+        self.apply()
+        target = self.root / 'dossiers/profc'
+        manifest = target / 'manifest.json'
+        original = manifest.read_bytes()
+        manifest.unlink()
+        manifest.symlink_to(self.root / 'config.json')
+        with self.assertRaises(ValueError):
+            read_dossier(self.root, 'profc', 'owner')
+        manifest.unlink()
+        manifest.write_bytes(original)
+        manifest.chmod(0o600)
+        decisions = target / 'decisions'
+        moved = self.root / 'moved-decisions'
+        decisions.rename(moved)
+        decisions.symlink_to(moved, target_is_directory=True)
+        with self.assertRaises(ValueError):
+            read_dossier(self.root, 'profc', 'owner')
+
+    def test_historical_symlink_added_during_copy_is_never_followed_or_published(self):
+        self.apply()
+        target = self.root / 'dossiers/profc'
+        outside = self.root / 'outside.txt'
+        outside.write_text('private external content')
+        outside.chmod(0o600)
+        self.draft['sections']['现状'][0]['text'] = '正在更新。'
+        original_copy = __import__('shutil').copytree
+        def copy_with_late_symlink(source, destination, *args, **kwargs):
+            if Path(source).resolve() == (target / 'versions').resolve():
+                (target / 'versions/1/late.md').symlink_to(outside)
+            return original_copy(source, destination, *args, **kwargs)
+        with patch('profc_memory.archive.shutil.copytree', side_effect=copy_with_late_symlink):
+            with self.assertRaises(ValueError):
+                self.apply()
+        self.assertEqual('1', read_dossier(self.root, 'profc', 'owner')['version'])
+        self.assertFalse((target / 'versions/2').exists())
+
     def test_external_directory_rejects_relative_traversal_symlink_and_permissions(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary).resolve()
