@@ -24,6 +24,23 @@ def draft():
                                 body=[paragraph])], reason='根据当前证据重建')
 
 
+def large_snapshot(text_size=130):
+    data = snapshot()
+    source = data['sources'][0]
+    source['source_id'] = 'message:' + 'synthetic-source-' * 5
+    data['events'] = [dict(data['events'][0], event_id='evt_' + f'{i:064x}',
+                          source_id=source['source_id'],
+                          claim='虚构约定' * (text_size // 4) + str(i),
+                          quote='虚构依据' * (text_size // 4) + str(i))
+                      for i in range(180)]
+    data['current_events'] = list(data['events'])
+    output = draft()
+    for paragraphs in [*output['sections'].values(), output['decisions'][0]['body']]:
+        for paragraph in paragraphs:
+            paragraph['source_refs'][0]['source_id'] = source['source_id']
+    return data, output
+
+
 class SynthesisTests(unittest.TestCase):
     def runner(self, data, hook=None):
         def run(argv, **kwargs):
@@ -69,6 +86,53 @@ class SynthesisTests(unittest.TestCase):
         result=synthesize(data,runner=self.runner(draft()))
         self.assertTrue(result['errors'])
         self.assertNotIn('draft',result)
+
+    def test_large_supported_snapshot_reaches_runner_with_all_evidence_intact(self):
+        data, output = large_snapshot()
+        original = json.dumps(data, ensure_ascii=False)
+        seen = []
+        previous = '此前已保存的虚构项目摘要。' * 100
+        def inspect(argv, kwargs):
+            payload = json.loads(kwargs['input'].split('输入开始：\n', 1)[1])
+            rows = [dict(zip(payload['event_fields'], row)) for row in payload['events']]
+            self.assertEqual(180, len(rows))
+            for event, row in zip(data['events'], rows):
+                for field in ('event_id', 'source_id', 'revision', 'claim', 'quote',
+                              'occurred_at', 'actor', 'kind', 'stage', 'facet', 'supersedes'):
+                    self.assertEqual(event.get(field), row[field])
+                self.assertTrue(row['is_current'])
+                self.assertFalse(row['historical_only_source'])
+            sources = [dict(zip(payload['source_fields'], row)) for row in payload['source_metadata']]
+            for field in payload['source_fields']:
+                self.assertEqual(data['sources'][0].get(field), sources[0][field])
+            self.assertEqual(previous, payload['previous'])
+            self.assertLessEqual(len(kwargs['input'].split('输入开始：\n', 1)[1]), 100000)
+            self.assertIn('event_fields', kwargs['input'].split('输入开始：\n', 1)[0])
+            seen.append(True)
+        result = synthesize(data, previous=previous, runner=self.runner(output, inspect))
+        self.assertEqual([], result['errors'])
+        self.assertEqual([True], seen)
+        self.assertEqual(original, json.dumps(data, ensure_ascii=False))
+
+    def test_truly_oversized_snapshot_reports_capacity_without_calling_model(self):
+        data, output = large_snapshot(text_size=600)
+        seen = []
+        result = synthesize(data, runner=self.runner(output, lambda *_: seen.append(True)))
+        self.assertEqual('synthesis_input_limit', result['errors'][0]['type'])
+        self.assertGreater(result['errors'][0]['input_chars'], 100000)
+        self.assertEqual(100000, result['errors'][0]['max_input_chars'])
+        self.assertEqual([], seen)
+        self.assertNotIn('draft', result)
+
+    def test_compacted_snapshot_still_rejects_stale_current_evidence(self):
+        data, output = large_snapshot()
+        data['sources'][0]['kind'] = 'document'
+        data['sources'].append(dict(data['sources'][0], revision='2', content='虚构新版依据。'))
+        seen = []
+        result = synthesize(data, runner=self.runner(output, lambda *_: seen.append(True)))
+        self.assertEqual([True], seen)
+        self.assertTrue(result['errors'])
+        self.assertNotIn('draft', result)
 
 
 if __name__ == '__main__':unittest.main()

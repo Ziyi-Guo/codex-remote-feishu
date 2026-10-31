@@ -12,7 +12,7 @@ from .collect import sanitize_content
 from .ledger import _revision_order
 
 SECTIONS = ('目标', '现状', '背景', '问题', '决策', '近期关注')
-SYNTHESIS_VERSION = 4
+SYNTHESIS_VERSION = 5
 REF = _object(dict(source_id=dict(type='string'), revision=dict(type='string')))
 PARAGRAPH = _object(dict(text=dict(type='string', minLength=1, maxLength=600),
                          source_refs=dict(type='array', minItems=1, maxItems=5, items=REF)))
@@ -47,7 +47,9 @@ historical_only_source=true表示同一来源已有可证明更新的版本，�
 禁止把明文密钥、技术ID/hash、来源ID写在正文；不要Markdown外链。reason用简短中文写本轮相对previous的具体项目变化，首版写“根据现有资料重建”；将用于工作摘要，不写实现程序的过程。
 首页五栏合计尽量控制在500至900汉字，最多1400字符；每栏最多2段、每段最多260字符。
 首页只保留改变判断的关键信息，具体回归项、技术细节和取舍展开写到决策页；不要把完整证据清单重复到首页。
-决策最多6个，每个最多4段。输入开始：
+决策最多6个，每个最多4段。
+输入若含event_fields，events每行是数组，第i个值对应event_fields第i个字段；若含source_fields，source_metadata每行按source_fields同样逐列还原。否则两者每项是对象。两种传输形态语义一致，所有字段值均按原值解读；输出仍遵守原schema和source_refs规则，使用来源原本的source_id/revision。
+输入开始：
 '''
 
 
@@ -119,8 +121,15 @@ def synthesize(snapshot, *, previous=None, runner=None, timeout=180):
                        source_metadata=[{key:s.get(key) for key in ('source_id','revision','kind','occurred_at','modified_at','observed_at','actor')}
                                         for s in sources.values()], previous=previous)
         encoded = json.dumps(payload,ensure_ascii=False)
-        if len(encoded) > 100000 or sanitize_content(encoded)[1]:
-            raise ValueError('unsafe_or_large_input')
+        if sanitize_content(encoded)[1]:
+            raise ValueError('unsafe_input')
+        if len(encoded) > 100000:
+            for records, fields in (('events','event_fields'), ('source_metadata','source_fields')):
+                payload[fields] = list(payload[records][0])
+                payload[records] = [[item[field] for field in payload[fields]] for item in payload[records]]
+            encoded = json.dumps(payload,ensure_ascii=False,separators=(',',':'))
+        if len(encoded) > 100000:
+            return dict(errors=[dict(type='synthesis_input_limit',input_chars=len(encoded),max_input_chars=100000)])
         with tempfile.TemporaryDirectory(prefix='profc-synthesize-') as directory:
             root=Path(directory);schema=root/'schema.json';output=root/'draft.json'
             schema.write_text(json.dumps(SCHEMA));schema.chmod(0o600)
